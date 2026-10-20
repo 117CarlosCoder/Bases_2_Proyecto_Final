@@ -1,0 +1,173 @@
+[
+  {
+    "year": "2024",
+    "total": 4,
+    "applicants": 3,
+    "approved": 2,
+    "careers": 3,
+    "months": [
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 3,
+        "approved": 1
+      },
+      {
+        "total": 1,
+        "approved": 1
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      }
+    ]
+  },
+  {
+    "year": "2025",
+    "total": 11,
+    "applicants": 5,
+    "approved": 8,
+    "careers": 4,
+    "months": [
+      {
+        "total": 6,
+        "approved": 4
+      },
+      {
+        "total": 4,
+        "approved": 3
+      },
+      {
+        "total": 1,
+        "approved": 1
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      }
+    ]
+  },
+  {
+    "year": "2026",
+    "total": 5,
+    "applicants": 5,
+    "approved": 2,
+    "careers": 4,
+    "months": [
+      {
+        "total": 2,
+        "approved": 1
+      },
+      {
+        "total": 2,
+        "approved": 1
+      },
+      {
+        "total": 1,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      },
+      {
+        "total": 0,
+        "approved": 0
+      }
+    ]
+  }
+]
