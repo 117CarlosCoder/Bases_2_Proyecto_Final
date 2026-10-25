@@ -56,6 +56,6 @@ import { DatabaseService } from './database.service';
     Neo4jSchemaService,
     DatabaseService,
   ],
-  exports: [MONGODB_CLIENT, MONGODB_DB, NEO4J_DRIVER, DatabaseService],
+  exports: [MONGODB_CLIENT, MONGODB_DB, NEO4J_DRIVER, Neo4jSchemaService, DatabaseService],
 })
 export class DatabaseModule {}

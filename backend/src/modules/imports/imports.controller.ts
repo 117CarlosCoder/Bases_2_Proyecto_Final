@@ -1,6 +1,8 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ImportsDto, IncidenciasImportsDto, PaginacionImportsDto } from './dto/imports.dto';
 import { ImportsService } from './imports.service';
+
+const REGEX_UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Controller('imports')
 export class ImportsController {
@@ -14,6 +16,14 @@ export class ImportsController {
       dto.csvContent,
       dto.fileName,
     );
+  }
+
+  @Post(':id/sync-neo4j')
+  sincronizarNeo4j(@Param('id') id: string) {
+    if (id !== 'all' && !REGEX_UUID_V4.test(id)) {
+      throw new BadRequestException('El identificador de importación no es válido');
+    }
+    return this.importsService.sincronizarNeo4j(id);
   }
 
   @Get()

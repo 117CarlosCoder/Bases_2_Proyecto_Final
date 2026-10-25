@@ -2,11 +2,7 @@ import type { EvaluacionDocument } from '../entities/evaluacion.entity';
 import type { ContextoFila, ResultadoFila } from './importacion.types';
 import { crearIncidencia } from './crearIncidencia.util';
 import type { CampoConCentinela } from './normalizarTexto.util';
-import {
-  convertirEntero, esValorVacio, normalizarCampoTexto, normalizarEdad,
-  normalizarFecha, normalizarResultado, normalizarSexo, normalizarTexto,
-  normalizarTipoEstablecimiento, resolverIdentidad, validarAnioEvaluacion, validarIntento,
-} from './normalizarTexto.util';
+import { convertirEntero, esValorVacio, normalizarCampoTexto, normalizarEdad, normalizarFecha, normalizarResultado, normalizarSexo, normalizarTexto, normalizarTipoEstablecimiento, resolverIdentidad, validarAnioEvaluacion, validarIntento } from './normalizarTexto.util';
 
 export function procesarFila(
   datos: Record<string, string>,
