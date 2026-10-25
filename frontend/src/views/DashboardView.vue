@@ -4,18 +4,19 @@ import { RouterLink } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import SampleChart from '@/components/SampleChart.vue'
 import DashboardQueryExplorer from '@/components/DashboardQueryExplorer.vue'
-import { getDashboardSummary } from '@/services/analytics.service'
-import { getP1, getP2, getP3, getP4, getP5, getP6, materializeCareerSummary } from '@/services/analytics-queries.service'
-import type {
-  ConsultaDashboard,
-  ResultadoConsulta,
-  ResumenAnualDashboard,
-  ParametrosTabla,
-} from '@/types/analytics'
+import DashboardPeriodFilter from '@/components/DashboardPeriodFilter.vue'
+import { getAnalyticsQuery, getDashboardPeriod, getDashboardSummary, materializeCareerSummary } from '@/services/analytics.service'
+import type { CalendarioDashboard, ConsultaDashboard, DashboardPeriod, ParametrosTabla, ResultadoConsulta, ResumenAnualDashboard, ResumenPeriodoDashboard, SeleccionPeriodo } from '@/types/analytics'
 
-const years = ref<string[]>([])
-const selectedYear = ref('')
-const resumen = ref<ResumenAnualDashboard>({
+const aniosDisponibles = ref<string[]>([])
+const anioSeleccionado = ref('')
+const periodo = ref<DashboardPeriod>('year')
+const mes = ref(1)
+const semana = ref('')
+const dia = ref('')
+const calendario = ref<CalendarioDashboard | null>(null)
+
+const resumenAnual = ref<ResumenAnualDashboard>({
   year: 'Sin datos',
   total: 0,
   approved: 0,
@@ -26,49 +27,104 @@ const resumen = ref<ResumenAnualDashboard>({
   months: Array.from({ length: 12 }, () => ({ total: 0, approved: 0 })),
 })
 
-const filtrarConsultasPorAnio = ref(false)
-const cargando = ref(false)
+const resumenPeriodo = ref<ResumenPeriodoDashboard | null>(null)
+
+const cargandoDashboard = ref(false)
+const cargandoPeriodo = ref(false)
 const cargandoConsultas = ref(false)
-const materializando = ref(false)
+const materializandoResumen = ref(false)
 const error = ref('')
+
 const consultaSeleccionada = ref<ConsultaDashboard>('p1')
-
-const parametrosIniciales = (): ParametrosTabla => ({ buscar: '', pagina: 1, limite: 10 })
-const parametrosTabla = ref<ParametrosTabla>(parametrosIniciales())
 const resultadoConsulta = ref<ResultadoConsulta>()
+const parametrosTabla = ref<ParametrosTabla>({
+  buscar: '',
+  pagina: 1,
+  limite: 10,
+})
 
-const shortcuts = [
+function reiniciarParametrosTabla() {
+  parametrosTabla.value = {
+    buscar: '',
+    pagina: 1,
+    limite: 10,
+  }
+}
+
+function obtenerAnioNumerico(): number | undefined {
+  if (!anioSeleccionado.value || anioSeleccionado.value === 'all') {
+    return undefined
+  }
+  return Number(anioSeleccionado.value)
+}
+
+function construirFiltroPeriodo(): SeleccionPeriodo {
+  const anioEspecifico = obtenerAnioNumerico()
+  const ultimoAnio = aniosDisponibles.value.length > 0
+    ? Number(aniosDisponibles.value[aniosDisponibles.value.length - 1])
+    : undefined
+
+  let fechaActiva: string | undefined
+  if (periodo.value === 'week') {
+    fechaActiva = semana.value
+  } else if (periodo.value === 'day') {
+    fechaActiva = dia.value
+  }
+
+  return {
+    anio: anioEspecifico ?? ultimoAnio,
+    periodo: periodo.value,
+    mes: periodo.value === 'month' ? mes.value : undefined,
+    fecha: fechaActiva,
+  }
+}
+
+const datosActivos = computed(() => resumenPeriodo.value ?? resumenAnual.value)
+const etiquetaPeriodo = computed(() => datosActivos.value.periodLabel)
+const puntosGrafica = computed(() => resumenPeriodo.value?.points ?? resumenAnual.value.points)
+
+const tituloGrafica = computed(() => {
+  if (!resumenPeriodo.value) {
+    return 'Evaluaciones por mes'
+  }
+  if (resumenPeriodo.value.points.length === 1) {
+    return 'Evaluaciones del día'
+  }
+  return 'Evaluaciones por día'
+})
+
+const accesosRapidos = [
   { title: 'Importaciones', subtitle: 'Tus archivos CSV', to: '/carga', tone: 'blue', icon: 'folder' },
   { title: 'Aspirantes', subtitle: 'Perfiles e historial', to: '/aspirantes', tone: 'coral', icon: 'graduation' },
   { title: 'Grafos', subtitle: 'Explora las relaciones', to: '/grafos', tone: 'orange', icon: 'graph' },
   { title: 'Comparación', subtitle: 'Rendimiento de motores', to: '/comparacion', tone: 'green', icon: 'chart' },
 ]
 
-const metrics = computed(() => [
+const tarjetasResumen = computed(() => [
   {
     title: 'Aspirantes',
-    value: resumen.value.applicants,
+    value: datosActivos.value.applicants,
     description: 'Identificadores distintos en MongoDB',
     tone: 'orange',
     icon: 'users',
   },
   {
     title: 'Evaluaciones',
-    value: resumen.value.total,
+    value: datosActivos.value.total,
     description: 'Documentos válidos en evaluaciones',
     tone: 'coral',
     icon: 'book',
   },
   {
     title: 'Aprobación',
-    value: `${resumen.value.approvalPercentage}%`,
-    description: `${resumen.value.approved} evaluaciones con resultado aprobado`,
+    value: `${datosActivos.value.approvalPercentage}%`,
+    description: `${datosActivos.value.approved} evaluaciones con resultado aprobado`,
     tone: 'violet',
     icon: 'check',
   },
   {
     title: 'Carreras',
-    value: resumen.value.careers,
+    value: datosActivos.value.careers,
     description: 'Carreras objetivo registradas',
     tone: 'green',
     icon: 'graduation',
@@ -76,50 +132,72 @@ const metrics = computed(() => [
 ])
 
 async function cargarDashboard() {
-  cargando.value = true
+  cargandoDashboard.value = true
   error.value = ''
+
   try {
-    const anio = selectedYear.value ? Number(selectedYear.value) : undefined
-    const respuesta = await getDashboardSummary(anio)
-    years.value = respuesta.years
-    selectedYear.value = respuesta.selectedYear
-    resumen.value = respuesta.summary
+    const respuesta = await getDashboardSummary(obtenerAnioNumerico())
+    const cambioRangoCalendario = calendario.value?.min !== respuesta.calendar?.min
+
+    aniosDisponibles.value = respuesta.years
+    anioSeleccionado.value = respuesta.selectedYear
+    calendario.value = respuesta.calendar
+    resumenAnual.value = respuesta.summary
+
+    if (cambioRangoCalendario || !dia.value) {
+      const fechaInicial = respuesta.calendar?.initialDate ?? ''
+      dia.value = fechaInicial
+      semana.value = fechaInicial
+    }
+
+    if (periodo.value !== 'year' && anioSeleccionado.value && anioSeleccionado.value !== 'all') {
+      await actualizarPeriodo()
+    } else {
+      resumenPeriodo.value = null
+    }
+
     await actualizarConsultas()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'No se pudo cargar el dashboard.'
   } finally {
-    cargando.value = false
+    cargandoDashboard.value = false
+  }
+}
+
+async function actualizarPeriodo() {
+  if (!anioSeleccionado.value) return
+
+  if (periodo.value !== 'year' && anioSeleccionado.value === 'all' && aniosDisponibles.value.length > 0) {
+    anioSeleccionado.value = aniosDisponibles.value[aniosDisponibles.value.length - 1]!
+  }
+
+  if (periodo.value === 'year') {
+    resumenPeriodo.value = null
+    return
+  }
+
+  cargandoPeriodo.value = true
+  error.value = ''
+
+  try {
+    resumenPeriodo.value = await getDashboardPeriod(construirFiltroPeriodo())
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'No se pudo cargar el periodo.'
+  } finally {
+    cargandoPeriodo.value = false
   }
 }
 
 async function actualizarConsultas() {
   cargandoConsultas.value = true
   error.value = ''
-  try {
-    const anio = filtrarConsultasPorAnio.value && selectedYear.value
-      ? Number(selectedYear.value)
-      : undefined
 
-    switch (consultaSeleccionada.value) {
-      case 'p1':
-        resultadoConsulta.value = await getP1(anio, parametrosTabla.value)
-        break
-      case 'p2':
-        resultadoConsulta.value = await getP2(anio, parametrosTabla.value)
-        break
-      case 'p3':
-        resultadoConsulta.value = await getP3(anio, parametrosTabla.value)
-        break
-      case 'p4':
-        resultadoConsulta.value = await getP4(anio, parametrosTabla.value)
-        break
-      case 'p5':
-        resultadoConsulta.value = await getP5(anio, parametrosTabla.value)
-        break
-      case 'p6':
-        resultadoConsulta.value = await getP6(parametrosTabla.value)
-        break
-    }
+  try {
+    resultadoConsulta.value = await getAnalyticsQuery(
+      consultaSeleccionada.value,
+      obtenerAnioNumerico(),
+      parametrosTabla.value,
+    )
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'No se pudo cargar la consulta.'
   } finally {
@@ -127,38 +205,40 @@ async function actualizarConsultas() {
   }
 }
 
-async function recargarConsulta() {
-  parametrosTabla.value = { ...parametrosTabla.value, pagina: 1 }
-  await actualizarConsultas()
-}
-
 async function recalcularResumenCarrera() {
-  if (materializando.value) return
-  materializando.value = true
+  if (materializandoResumen.value) return
+  materializandoResumen.value = true
   error.value = ''
+
   try {
     await materializeCareerSummary()
-    if (consultaSeleccionada.value === 'p6') await actualizarConsultas()
+    if (consultaSeleccionada.value === 'p6') {
+      await actualizarConsultas()
+    }
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'No se pudo materializar resumen_carrera.'
   } finally {
-    materializando.value = false
+    materializandoResumen.value = false
   }
 }
 
 function alCambiarAnio() {
-  parametrosTabla.value = parametrosIniciales()
+  if (anioSeleccionado.value === 'all') {
+    periodo.value = 'year'
+  }
+  resumenPeriodo.value = null
+  reiniciarParametrosTabla()
   void cargarDashboard()
 }
 
 async function seleccionarConsulta(consulta: ConsultaDashboard) {
   if (consulta === consultaSeleccionada.value) return
   consultaSeleccionada.value = consulta
-  parametrosTabla.value = parametrosIniciales()
+  reiniciarParametrosTabla()
   await actualizarConsultas()
 }
 
-async function buscarConsulta(buscar: string) {
+async function buscarEnConsulta(buscar: string) {
   parametrosTabla.value = { ...parametrosTabla.value, buscar, pagina: 1 }
   await actualizarConsultas()
 }
@@ -185,7 +265,9 @@ onMounted(() => {
 
 <template>
   <div class="page dashboard-page">
-    <p v-if="error" class="dashboard-alert dashboard-alert--error" role="alert">{{ error }}</p>
+    <p v-if="error" class="dashboard-alert dashboard-alert--error" role="alert">
+      {{ error }}
+    </p>
 
     <div class="dashboard-layout">
       <section class="dashboard-primary" aria-labelledby="explore-title">
@@ -193,38 +275,72 @@ onMounted(() => {
           <div>
             <h1 id="explore-title">Dashboard</h1>
           </div>
-          <button class="btn btn--ghost" type="button" :disabled="cargando" @click="cargarDashboard">
+          <button
+            class="btn btn--ghost"
+            type="button"
+            :disabled="cargandoDashboard || cargandoPeriodo"
+            @click="cargarDashboard"
+          >
             <AppIcon name="refresh" :size="16" />
-            {{ cargando ? 'Actualizando…' : 'Actualizar' }}
+            {{ cargandoDashboard ? 'Actualizando…' : 'Actualizar' }}
           </button>
         </div>
 
         <div class="shortcut-grid">
-          <RouterLink v-for="item in shortcuts" :key="item.to" :to="item.to" class="shortcut" :class="`tone-${item.tone}`">
-            <AppIcon :name="item.icon" :size="29" />
-            <div><strong>{{ item.title }}</strong><span>{{ item.subtitle }}</span></div>
+          <RouterLink
+            v-for="acceso in accesosRapidos"
+            :key="acceso.to"
+            :to="acceso.to"
+            class="shortcut"
+            :class="`tone-${acceso.tone}`"
+          >
+            <AppIcon :name="acceso.icon" :size="29" />
+            <div>
+              <strong>{{ acceso.title }}</strong>
+              <span>{{ acceso.subtitle }}</span>
+            </div>
             <AppIcon name="chevron" :size="17" />
           </RouterLink>
         </div>
 
         <section class="statistics-card" aria-labelledby="statistics-title">
           <header class="section-heading">
-            <h2 id="statistics-title">Estadísticas anuales ({{ resumen.periodLabel }})</h2>
-            <label v-if="years.length" class="year-select">
+            <h2 id="statistics-title">Estadísticas ({{ etiquetaPeriodo }})</h2>
+
+            <label v-if="aniosDisponibles.length" class="year-select">
               <AppIcon name="calendar" :size="17" />
               <span class="sr-only">Año de evaluación</span>
-              <select v-model="selectedYear" :disabled="cargando" @change="alCambiarAnio">
-                <option v-for="item in years" :key="item" :value="item">{{ item }}</option>
+              <select
+                v-model="anioSeleccionado"
+                :disabled="cargandoDashboard || cargandoPeriodo"
+                @change="alCambiarAnio"
+              >
+                <option value="all">Todos los años</option>
+                <option v-for="anio in aniosDisponibles" :key="anio" :value="anio">
+                  {{ anio }}
+                </option>
               </select>
             </label>
             <span v-else class="badge badge--muted">Sin registros</span>
           </header>
 
+          <DashboardPeriodFilter
+            v-model:period="periodo"
+            v-model:month="mes"
+            v-model:week="semana"
+            v-model:day="dia"
+            :year="anioSeleccionado"
+            :calendar="calendario"
+            :disabled="cargandoDashboard || cargandoPeriodo"
+            @change="actualizarPeriodo()"
+          />
+
           <SampleChart
-            :months="resumen.months"
-            :year="resumen.year"
-            :period-label="resumen.periodLabel"
-            title="Evaluaciones por mes de asignación"
+            :months="resumenAnual.months"
+            :points="puntosGrafica"
+            :year="datosActivos.year"
+            :period-label="etiquetaPeriodo"
+            :title="tituloGrafica"
           />
         </section>
       </section>
@@ -234,21 +350,30 @@ onMounted(() => {
           <h2 id="summary-title">Resumen académico</h2>
           <AppIcon name="graduation" :size="21" />
         </div>
+
         <div class="academic-profile">
-          <img class="academic-avatar usac-logo" src="/images/usac-escudo.png" alt="Escudo de la USAC" width="45" height="45" />
+          <img
+            class="academic-avatar usac-logo"
+            src="/images/usac-escudo.png"
+            alt="Escudo de la USAC"
+            width="45"
+            height="45"
+          />
           <div>
             <strong>Universidad de San Carlos</strong>
             <span>Pruebas específicas · Guatemala</span>
           </div>
-          <span class="profile-year">{{ resumen.year }}</span>
+          <span class="profile-year">{{ datosActivos.year }}</span>
         </div>
+
         <div class="summary-grid">
-          <article v-for="metric in metrics" :key="metric.title" class="summary-card">
-            <span class="metric-icon" :class="`tone-${metric.tone}`"><AppIcon :name="metric.icon" :size="26" /></span>
-            <span class="metric-kicker">MONGODB</span>
-            <strong class="summary-value">{{ metric.value }}</strong>
-            <h3>{{ metric.title }}</h3>
-            <p>{{ metric.description }}</p>
+          <article v-for="tarjeta in tarjetasResumen" :key="tarjeta.title" class="summary-card">
+            <span class="metric-icon" :class="`tone-${tarjeta.tone}`">
+              <AppIcon :name="tarjeta.icon" :size="26" />
+            </span>
+            <strong class="summary-value">{{ tarjeta.value }}</strong>
+            <h3>{{ tarjeta.title }}</h3>
+            <p>{{ tarjeta.description }}</p>
           </article>
         </div>
       </aside>
@@ -258,40 +383,21 @@ onMounted(() => {
       <div class="section-heading">
         <div>
           <h2 id="catalog-title">Biblioteca de consultas</h2>
-          <p class="section-caption">Resultados ejecutados en tiempo real sobre MongoDB (P1–P6).</p>
-        </div>
-        <div class="catalog-controls">
-          <label v-if="years.length" class="catalog-filter">
-            <span>Filtrar por año</span>
-            <span class="catalog-filter-year">{{ selectedYear }}</span>
-            <span class="catalog-switch">
-              <input
-                v-model="filtrarConsultasPorAnio"
-                type="checkbox"
-                role="switch"
-                :aria-label="`Filtrar consultas P1–P5 por año ${selectedYear}`"
-                :disabled="cargando || cargandoConsultas"
-                @change="recargarConsulta"
-              />
-              <span class="catalog-switch-track" aria-hidden="true"></span>
-            </span>
-          </label>
-          <span class="catalog-connection"><span aria-hidden="true"></span>Conectado a MongoDB</span>
         </div>
       </div>
 
       <DashboardQueryExplorer
-        :key="selectedYear"
+        :key="anioSeleccionado"
         :selected="consultaSeleccionada"
         :params="parametrosTabla"
         :response="resultadoConsulta"
+        :loading="cargandoDashboard || cargandoPeriodo || cargandoConsultas"
+        :materializing="materializandoResumen"
         @select="seleccionarConsulta"
-        @search="buscarConsulta"
+        @search="buscarEnConsulta"
         @sort="ordenarConsulta"
         @page="cambiarPaginaConsulta"
         @page-size="cambiarLimiteConsulta"
-        :loading="cargando || cargandoConsultas"
-        :materializing="materializando"
         @recalculate="recalcularResumenCarrera"
       />
     </section>
@@ -311,108 +417,9 @@ onMounted(() => {
   background: var(--coral-soft);
 }
 
-.notice-link {
-  color: var(--color-primary);
-  text-decoration: underline;
-}
-
-.catalog-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 16px;
-}
-
 .query-catalog > .section-heading {
   align-items: flex-start;
   flex-wrap: wrap;
   gap: 16px;
-}
-
-.catalog-filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 11px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: var(--color-surface);
-  font-size: 11px;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-
-.catalog-filter-year {
-  color: var(--color-text);
-  font-variant-numeric: tabular-nums;
-}
-
-.catalog-switch {
-  position: relative;
-  display: inline-flex;
-  width: 30px;
-  height: 18px;
-  flex-shrink: 0;
-}
-
-.catalog-switch input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.catalog-switch-track {
-  width: 100%;
-  height: 100%;
-  border: 1px solid var(--color-text-muted);
-  border-radius: 20px;
-  background: var(--color-surface-muted);
-  transition: background .15s, border-color .15s;
-  pointer-events: none;
-}
-
-.catalog-switch-track::after {
-  content: '';
-  display: block;
-  width: 10px;
-  height: 10px;
-  margin: 3px;
-  border-radius: 50%;
-  background: var(--color-text-muted);
-  transition: transform .15s, background .15s;
-}
-
-.catalog-switch input:checked + .catalog-switch-track {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-}
-
-.catalog-switch input:checked + .catalog-switch-track::after {
-  transform: translateX(12px);
-  background: var(--color-surface);
-}
-
-.catalog-switch input:focus-visible + .catalog-switch-track {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 3px;
-}
-
-.catalog-connection {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--color-text-muted);
-  font-size: 11px;
-}
-
-.catalog-connection > span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-up);
 }
 </style>
