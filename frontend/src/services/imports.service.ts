@@ -1,6 +1,5 @@
 import { request } from './api'
-import type { ImportRecord, ImportIssue, TipoIncidencia } from '@/types/imports'
-import type { Pagina } from '@/types/pagination'
+import type { ImportRecord, ImportIssue, Pagina, TipoIncidencia } from '@/types/imports'
 
 const IMPORT_TIMEOUT_MS = 120_000
 
@@ -27,6 +26,18 @@ export function listImports(pagina = 1, limite = 10): Promise<Pagina<ImportRecor
 
 export function getImportById(id: string): Promise<ImportRecord> {
   return request(`/imports/${encodeURIComponent(id)}`)
+}
+
+export function resyncImportNeo4j(id: string): Promise<ImportRecord> {
+  return request<ImportRecord>(`/imports/${encodeURIComponent(id)}/sync-neo4j`, {
+    method: 'POST',
+  }, IMPORT_TIMEOUT_MS)
+}
+
+export function resyncAllNeo4j(): Promise<{ syncedAt: string; nodesProcessed: number }> {
+  return request<{ syncedAt: string; nodesProcessed: number }>('/imports/all/sync-neo4j', {
+    method: 'POST',
+  }, IMPORT_TIMEOUT_MS)
 }
 
 export function getImportErrors(

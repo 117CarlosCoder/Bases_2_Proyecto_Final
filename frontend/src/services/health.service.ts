@@ -1,80 +1,57 @@
 import { request } from './api'
 import type { HealthReport, ServiceHealth, ServiceStatus } from '@/types/health'
 
-interface RawServiceHealth {
+interface BackendHealthResponse {
   status?: string
-  latencyMs?: number
-  error?: string | null
+  services?: {
+    api?: { status?: string; error?: string | null }
+    mongodb?: { status?: string; error?: string | null }
+    neo4j?: { status?: string; error?: string | null }
+  }
 }
 
-interface RawHealthResponse {
-  status?: string
-  timestamp?: string
-  services?: Record<string, RawServiceHealth | undefined>
-}
-
-const UP_STATUSES = ['up', 'ok', 'healthy', 'available', 'connected']
-const DOWN_STATUSES = ['down', 'error', 'unhealthy', 'unavailable', 'disconnected']
-
-function normalizeServiceStatus(value: string | undefined): ServiceStatus {
-  const normalized = (value ?? '').trim().toLowerCase()
-  if (UP_STATUSES.includes(normalized)) {
-    return 'up'
+function leerEstadoServicio(
+  servicio: { status?: string; error?: string | null } | undefined,
+  porDefecto: ServiceStatus,
+): ServiceHealth {
+  if (!servicio) {
+    return { status: porDefecto, error: null }
   }
-  if (DOWN_STATUSES.includes(normalized)) {
-    return 'down'
-  }
-  return 'unknown'
-}
 
-function normalizeService(raw: RawServiceHealth | undefined, fallback: ServiceStatus): ServiceHealth {
-  if (!raw) {
-    return { status: fallback, latencyMs: null, error: null }
-  }
-  const status = normalizeServiceStatus(raw.status)
+  const texto = (servicio.status ?? '').toLowerCase()
+  const status: ServiceStatus = texto === 'up' ? 'up' : texto === 'down' ? 'down' : porDefecto
+
   return {
-    status: status === 'unknown' ? fallback : status,
-    latencyMs: typeof raw.latencyMs === 'number' && Number.isFinite(raw.latencyMs) ? raw.latencyMs : null,
-    error: typeof raw.error === 'string' && raw.error.trim() ? raw.error : null,
+    status,
+    error: servicio.error ?? null,
   }
 }
 
 export async function getHealth(): Promise<HealthReport> {
-  const startedAt = performance.now()
-
   try {
-    const payload = await request<RawHealthResponse>('/health')
-    const latencyMs = Math.round(performance.now() - startedAt)
-    const services = payload.services ?? {}
+    const respuesta = await request<BackendHealthResponse>('/health')
+    const api = leerEstadoServicio(respuesta.services?.api, 'up')
+    const mongodb = leerEstadoServicio(respuesta.services?.mongodb, 'unknown')
+    const neo4j = leerEstadoServicio(respuesta.services?.neo4j, 'unknown')
 
-    const api = normalizeService(services.api, 'up')
-    const mongodb = normalizeService(services.mongodb, 'unknown')
-    const neo4j = normalizeService(services.neo4j, 'unknown')
-
-    const reportedOk = (payload.status ?? '').trim().toLowerCase() === 'ok'
-    const databasesOk = mongodb.status === 'up' && neo4j.status === 'up'
+    const todoDisponible = respuesta.status === 'ok' && mongodb.status === 'up' && neo4j.status === 'up'
 
     return {
-      overall: reportedOk && databasesOk ? 'ok' : 'degraded',
-      reachable: true,
-      checkedAt: payload.timestamp ?? new Date().toISOString(),
-      latencyMs,
+      overall: todoDisponible ? 'ok' : 'degraded',
       services: { api, mongodb, neo4j },
       error: null,
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Error desconocido al consultar la API.'
+  } catch (cause) {
+    const mensajeError = cause instanceof Error ? cause.message : 'Error al consultar el estado del sistema.'
+
     return {
       overall: 'offline',
-      reachable: false,
-      checkedAt: new Date().toISOString(),
-      latencyMs: null,
       services: {
-        api: { status: 'down', latencyMs: null, error: message },
-        mongodb: { status: 'unknown', latencyMs: null, error: null },
-        neo4j: { status: 'unknown', latencyMs: null, error: null },
+        api: { status: 'down', error: mensajeError },
+        mongodb: { status: 'unknown', error: null },
+        neo4j: { status: 'unknown', error: null },
       },
-      error: message,
+      error: mensajeError,
     }
   }
 }

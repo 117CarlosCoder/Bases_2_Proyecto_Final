@@ -3,6 +3,13 @@ export interface ResumenMensualDashboard {
   approved: number
 }
 
+export interface PuntoSerieDashboard {
+  date?: string
+  label: string
+  total: number
+  approved: number
+}
+
 export interface ResumenAnualDashboard {
   year: string
   total: number
@@ -10,60 +17,72 @@ export interface ResumenAnualDashboard {
   approved: number
   careers: number
   months: ResumenMensualDashboard[]
+  points?: PuntoSerieDashboard[]
   approvalPercentage: number
   periodLabel: string
 }
 
-export interface ResumenCarreraDocument {
-  carrera_objetivo: string
-  aspirantes_distintos: number
-  evaluaciones: number
-  evaluaciones_aprobadas: number
-  porcentaje_aprobacion: number
-  promedio_edad: number | null
-  updated_at: string
+export interface ResumenPeriodoDashboard {
+  year: string
+  total: number
+  approved: number
+  applicants: number
+  careers: number
+  approvalPercentage: number
+  periodLabel: string
+  points: PuntoSerieDashboard[]
 }
 
-export interface FilaP1TipoInstitucion {
-  tipo_establecimiento: string
-  aspirantes: number
+export type DashboardPeriod = 'year' | 'month' | 'week' | 'day'
+
+export interface SeleccionPeriodo {
+  anio?: number
+  periodo?: DashboardPeriod
+  mes?: number
+  fecha?: string
 }
 
-export interface FilaP2AprobadosMateria {
-  materia_evaluada: string
-  aprobados: number
+export interface RangoSemanaCalendario {
+  desde: string
+  hasta: string
+  label: string
 }
 
-export interface FilaP3AprobadosCarreraAnio {
-  carrera_objetivo: string
-  anio_evaluacion: number
-  aspirantes_aprobados: number
+export interface CalendarioDashboard {
+  min: string
+  max: string
+  initialDate: string
+  weeks: RangoSemanaCalendario[]
 }
 
-export interface FilaP4TasaAprobacion {
-  materia_evaluada: string
-  evaluaciones: number
-  aprobadas: number
-  porcentaje_aprobacion: number
+export interface ResumenDashboardResponse {
+  years: string[]
+  selectedYear: string
+  summary: ResumenAnualDashboard
+  calendar: CalendarioDashboard | null
 }
 
-export interface FilaP5EdadCarrera {
-  carrera_objetivo: string
-  aspirantes_con_edad: number
-  promedio_edad: number
-}
-
-export interface ResultadosConsultas {
-  p1: PaginaConsulta<FilaP1TipoInstitucion>
-  p2: PaginaConsulta<FilaP2AprobadosMateria>
-  p3: PaginaConsulta<FilaP3AprobadosCarreraAnio>
-  p4: PaginaConsulta<FilaP4TasaAprobacion>
-  p5: PaginaConsulta<FilaP5EdadCarrera>
-  p6: PaginaConsulta<ResumenCarreraDocument>
-}
-
-export type ConsultaDashboard = keyof ResultadosConsultas
-export type ResultadoConsulta = ResultadosConsultas[ConsultaDashboard]
+export type ConsultaDashboard =
+  | 'p1'
+  | 'p2'
+  | 'p3'
+  | 'p4'
+  | 'p5'
+  | 'p6'
+  | 'p7'
+  | 'p8'
+  | 'p9'
+  | 'p10'
+  | 'p11'
+  | 'p12'
+  | 'p13'
+  | 'p14'
+  | 'p15'
+  | 'p16'
+  | 'p17'
+  | 'p18'
+  | 'p19'
+  | 'p20'
 
 export interface ParametrosTabla {
   buscar: string
@@ -73,13 +92,7 @@ export interface ParametrosTabla {
   direccion?: 'asc' | 'desc'
 }
 
-export interface ResumenDashboardResponse {
-  years: string[]
-  selectedYear: string
-  summary: ResumenAnualDashboard
-}
-
-export interface PaginaConsulta<T> {
+export interface PaginaConsulta<T = Record<string, unknown>> {
   items: T[]
   total: number
   totalSinBusqueda: number
@@ -93,4 +106,20 @@ export interface PaginaConsulta<T> {
   ordenarPor: string
   direccion: 'asc' | 'desc'
   scopeLabel: string
+}
+
+export type FilaConsulta = Record<string, unknown>
+export type ResultadoConsulta = PaginaConsulta<FilaConsulta>
+
+export interface QueryColumn {
+  key: string
+  label: string
+  format?: 'number' | 'percent' | 'age' | 'year'
+}
+
+export interface DashboardQuery {
+  key: ConsultaDashboard
+  title: string
+  description: string
+  columns: QueryColumn[]
 }
