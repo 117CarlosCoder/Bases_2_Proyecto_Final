@@ -2,16 +2,17 @@
 import { computed, onMounted, ref } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import BaseCard from '@/components/BaseCard.vue'
-import { getImportById, getImportErrors, listImports, uploadCsvFile } from '@/services/imports.service'
+import { getImportById, getImportErrors, listImports, resyncAllNeo4j, resyncImportNeo4j, uploadCsvFile } from '@/services/imports.service'
 import type { ImportIssue, ImportRecord, TipoIncidencia } from '@/types/imports'
 
-const input = ref<HTMLInputElement | null>(null)
+const inputArchivo = ref<HTMLInputElement | null>(null)
 const archivosSeleccionados = ref<File[]>([])
 const ocupado = ref(false)
+const sincronizandoId = ref<string | null>(null)
 const arrastrando = ref(false)
 const mensaje = ref('')
 const error = ref('')
-const ultima = ref<ImportRecord | null>(null)
+const ultimaImportacion = ref<ImportRecord | null>(null)
 
 const historial = ref<ImportRecord[]>([])
 const cargandoHistorial = ref(false)
@@ -23,9 +24,9 @@ const paginaAnterior = ref<number | null>(null)
 const paginaSiguiente = ref<number | null>(null)
 const limite = 10
 
-const seleccionada = ref<ImportRecord | null>(null)
+const importacionSeleccionada = ref<ImportRecord | null>(null)
 const incidencias = ref<ImportIssue[]>([])
-const filtro = ref<TipoIncidencia | ''>('')
+const filtroIncidencia = ref<TipoIncidencia | ''>('')
 const paginaIncidencias = ref(1)
 const paginasIncidencias = ref(1)
 const totalIncidencias = ref(0)
@@ -34,48 +35,66 @@ const incidenciaSiguiente = ref<number | null>(null)
 const cargandoIncidencias = ref(false)
 const errorIncidencias = ref('')
 
-const resumen = computed(() => [
-  { label: 'Filas leídas', value: ultima.value?.contadores.leidos ?? '—' },
-  { label: 'Válidas', value: ultima.value?.contadores.validos ?? '—' },
-  { label: 'Nuevas', value: ultima.value?.contadores.nuevos ?? '—' },
-  { label: 'Duplicadas', value: ultima.value?.contadores.duplicados ?? '—' },
-  { label: 'Con advertencias', value: ultima.value?.contadores.advertencias ?? '—' },
-  { label: 'Rechazadas', value: ultima.value?.contadores.rechazados ?? '—' },
+const resumenContadores = computed(() => [
+  { label: 'Filas leídas', value: ultimaImportacion.value?.contadores.leidos ?? '—' },
+  { label: 'Válidas', value: ultimaImportacion.value?.contadores.validos ?? '—' },
+  { label: 'Nuevas', value: ultimaImportacion.value?.contadores.nuevos ?? '—' },
+  { label: 'Duplicadas', value: ultimaImportacion.value?.contadores.duplicados ?? '—' },
+  { label: 'Con advertencias', value: ultimaImportacion.value?.contadores.advertencias ?? '—' },
+  { label: 'Rechazadas', value: ultimaImportacion.value?.contadores.rechazados ?? '—' },
 ])
 
-const mensajeError = (cause: unknown) =>
-  cause instanceof Error ? cause.message : 'No se pudo completar la operación.'
-const fecha = (value: string) => new Date(value).toLocaleString('es-GT')
-const tamano = (bytes: number) =>
-  bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
-const estado = (value: ImportRecord['estado']) =>
-  ({
-    PROCESANDO: 'Procesando',
-    COMPLETADO: 'Completado',
-    NEO4J_PENDIENTE: 'MongoDB guardado',
-    FALLO: 'Falló',
-  })[value]
-const estadoSync = (value: ImportRecord['neo4j_sync']['status']) =>
-  ({ SINCRONIZADO: 'Sincronizado', PENDIENTE: 'Pendiente', FALLO: 'Falló' })[value]
+function obtenerMensajeError(cause: unknown): string {
+  if (cause instanceof Error) {
+    return cause.message
+  }
+  return 'No se pudo completar la operación.'
+}
 
-function agregarArchivos(files: File[]) {
+function formatearFecha(valorIso: string): string {
+  return new Date(valorIso).toLocaleString('es-GT')
+}
+
+function formatearTamanoArchivo(bytes: number): string {
+  const unMegabyte = 1024 * 1024
+  if (bytes < unMegabyte) {
+    return `${(bytes / 1024).toFixed(1)} KB`
+  }
+  return `${(bytes / unMegabyte).toFixed(1)} MB`
+}
+
+function formatearEstadoImportacion(estado: ImportRecord['estado']): string {
+  if (estado === 'PROCESANDO') return 'Procesando'
+  if (estado === 'COMPLETADO') return 'Completado'
+  if (estado === 'NEO4J_PENDIENTE') return 'MongoDB guardado'
+  return 'Falló'
+}
+
+function formatearEstadoNeo4j(estado: ImportRecord['neo4j_sync']['status']): string {
+  if (estado === 'SINCRONIZADO') return 'Sincronizado'
+  if (estado === 'PENDIENTE') return 'Pendiente'
+  return 'Falló'
+}
+
+function agregarArchivos(archivos: File[]) {
   if (ocupado.value) return
   error.value = ''
   mensaje.value = ''
-  const validos = files.filter(file => /\.csv$/i.test(file.name) && file.size > 0)
-  if (validos.length !== files.length) {
+
+  const archivosValidos = archivos.filter(archivo => /\.csv$/i.test(archivo.name) && archivo.size > 0)
+  if (archivosValidos.length !== archivos.length) {
     error.value = 'Algunos archivos fueron omitidos porque no son .csv o están vacíos.'
   }
-  archivosSeleccionados.value = validos
+  archivosSeleccionados.value = archivosValidos
 }
 
-function cambioArchivos(event: Event) {
-  const element = event.target as HTMLInputElement
-  agregarArchivos(Array.from(element.files ?? []))
-  element.value = ''
+function alSeleccionarArchivos(event: Event) {
+  const elemento = event.target as HTMLInputElement
+  agregarArchivos(Array.from(elemento.files ?? []))
+  elemento.value = ''
 }
 
-function soltarArchivos(event: DragEvent) {
+function alSoltarArchivos(event: DragEvent) {
   arrastrando.value = false
   agregarArchivos(Array.from(event.dataTransfer?.files ?? []))
 }
@@ -85,98 +104,147 @@ async function subirArchivos() {
   ocupado.value = true
   error.value = ''
   mensaje.value = ''
-  let exitosos = 0
+  let archivosImportados = 0
 
   try {
-    for (const file of archivosSeleccionados.value) {
-      const resultado = await uploadCsvFile(file)
-      ultima.value = resultado
-      exitosos += 1
+    for (const archivo of archivosSeleccionados.value) {
+      const resultado = await uploadCsvFile(archivo)
+      ultimaImportacion.value = resultado
+      archivosImportados += 1
     }
-    mensaje.value = `Se importaron ${exitosos} archivo(s) correctamente.`
+    mensaje.value = `Se importaron ${archivosImportados} archivo(s) correctamente.`
     archivosSeleccionados.value = []
     pagina.value = 1
     await cargarHistorial()
   } catch (cause) {
-    error.value = mensajeError(cause)
+    error.value = obtenerMensajeError(cause)
   } finally {
     ocupado.value = false
+  }
+}
+
+async function sincronizarRegistroNeo4j(registro: ImportRecord) {
+  if (ocupado.value || sincronizandoId.value !== null) return
+  sincronizandoId.value = registro.id
+  errorHistorial.value = ''
+  mensaje.value = ''
+
+  try {
+    const actualizado = await resyncImportNeo4j(registro.id)
+    if (ultimaImportacion.value?.id === actualizado.id) {
+      ultimaImportacion.value = actualizado
+    }
+    if (importacionSeleccionada.value?.id === actualizado.id) {
+      importacionSeleccionada.value = actualizado
+    }
+    mensaje.value = `Sincronización con Neo4j completada para ${actualizado.archivo} (${actualizado.neo4j_sync.nodesProcessed} evaluaciones).`
+    await cargarHistorial()
+  } catch (cause) {
+    errorHistorial.value = obtenerMensajeError(cause)
+    await cargarHistorial()
+  } finally {
+    sincronizandoId.value = null
+  }
+}
+
+async function sincronizarTodoNeo4j() {
+  if (ocupado.value || sincronizandoId.value !== null) return
+  sincronizandoId.value = 'all'
+  errorHistorial.value = ''
+  mensaje.value = ''
+
+  try {
+    const resultado = await resyncAllNeo4j()
+    mensaje.value = `Grafo Neo4j sincronizado con todas las evaluaciones (${resultado.nodesProcessed} registros procesados).`
+    await cargarHistorial()
+  } catch (cause) {
+    errorHistorial.value = obtenerMensajeError(cause)
+  } finally {
+    sincronizandoId.value = null
   }
 }
 
 async function cargarHistorial() {
   cargandoHistorial.value = true
   errorHistorial.value = ''
+
   try {
-    const response = await listImports(pagina.value, limite)
-    historial.value = response.items
-    total.value = response.total
-    pagina.value = response.pagina
-    paginas.value = response.paginas
-    paginaAnterior.value = response.paginaAnterior
-    paginaSiguiente.value = response.paginaSiguiente
+    const respuesta = await listImports(pagina.value, limite)
+    historial.value = respuesta.items
+    total.value = respuesta.total
+    pagina.value = respuesta.pagina
+    paginas.value = respuesta.paginas
+    paginaAnterior.value = respuesta.paginaAnterior
+    paginaSiguiente.value = respuesta.paginaSiguiente
   } catch (cause) {
-    errorHistorial.value = mensajeError(cause)
+    errorHistorial.value = obtenerMensajeError(cause)
   } finally {
     cargandoHistorial.value = false
   }
 }
 
-async function cambiarPagina(value: number | null) {
-  if (value === null) return
-  pagina.value = value
+async function cambiarPaginaHistorial(nuevaPagina: number | null) {
+  if (nuevaPagina === null) return
+  pagina.value = nuevaPagina
   await cargarHistorial()
 }
 
 async function cargarIncidencias() {
-  const id = seleccionada.value?.id
-  if (!id) return
+  const idImportacion = importacionSeleccionada.value?.id
+  if (!idImportacion) return
+
   cargandoIncidencias.value = true
   errorIncidencias.value = ''
   incidencias.value = []
+
   try {
-    const response = await getImportErrors(id, filtro.value || undefined, paginaIncidencias.value)
-    incidencias.value = response.items
-    totalIncidencias.value = response.total
-    paginaIncidencias.value = response.pagina
-    paginasIncidencias.value = response.paginas
-    incidenciaAnterior.value = response.paginaAnterior
-    incidenciaSiguiente.value = response.paginaSiguiente
+    const respuesta = await getImportErrors(
+      idImportacion,
+      filtroIncidencia.value || undefined,
+      paginaIncidencias.value,
+    )
+    incidencias.value = respuesta.items
+    totalIncidencias.value = respuesta.total
+    paginaIncidencias.value = respuesta.pagina
+    paginasIncidencias.value = respuesta.paginas
+    incidenciaAnterior.value = respuesta.paginaAnterior
+    incidenciaSiguiente.value = respuesta.paginaSiguiente
   } catch (cause) {
-    errorIncidencias.value = mensajeError(cause)
+    errorIncidencias.value = obtenerMensajeError(cause)
   } finally {
     cargandoIncidencias.value = false
   }
 }
 
-async function verDetalle(registro: ImportRecord) {
-  seleccionada.value = registro
+async function verDetalleImportacion(registro: ImportRecord) {
+  importacionSeleccionada.value = registro
   paginaIncidencias.value = 1
-  filtro.value = ''
+  filtroIncidencia.value = ''
   await cargarIncidencias()
 }
 
-async function cambiarFiltro() {
+async function cambiarFiltroIncidencias() {
   paginaIncidencias.value = 1
   await cargarIncidencias()
 }
 
-async function cambiarPaginaIncidencias(value: number | null) {
-  if (value === null) return
-  paginaIncidencias.value = value
+async function cambiarPaginaIncidencias(nuevaPagina: number | null) {
+  if (nuevaPagina === null) return
+  paginaIncidencias.value = nuevaPagina
   await cargarIncidencias()
 }
 
-async function actualizarSeleccionada() {
-  const id = seleccionada.value?.id
-  if (!id) return
+async function actualizarImportacionSeleccionada() {
+  const idImportacion = importacionSeleccionada.value?.id
+  if (!idImportacion) return
+
   try {
-    const actual = await getImportById(id)
-    seleccionada.value = actual
-    ultima.value = actual
+    const actualizada = await getImportById(idImportacion)
+    importacionSeleccionada.value = actualizada
+    ultimaImportacion.value = actualizada
     await cargarIncidencias()
   } catch (cause) {
-    errorIncidencias.value = mensajeError(cause)
+    errorIncidencias.value = obtenerMensajeError(cause)
   }
 }
 
@@ -190,7 +258,9 @@ onMounted(() => {
     <header class="page-header">
       <div>
         <h1 class="page-title">Carga de CSV e historial</h1>
-        <p class="page-subtitle">Importa tus archivos, revisa los resultados y consulta los errores de cada fila.</p>
+        <p class="page-subtitle">
+          Importa tus archivos, revisa los resultados y consulta los errores de cada fila.
+        </p>
       </div>
     </header>
 
@@ -200,22 +270,31 @@ onMounted(() => {
     <section aria-label="Resultado de la última importación">
       <div class="section-heading upload-result-heading">
         <h2>Resultado de importación</h2>
-        <span v-if="ultima" class="badge">{{ estado(ultima.estado) }}</span>
+        <span v-if="ultimaImportacion" class="badge">
+          {{ formatearEstadoImportacion(ultimaImportacion.estado) }}
+        </span>
       </div>
       <p class="hint upload-result-description">
-        {{ ultima ? `${ultima.archivo} · ${ultima.duracion_ms} ms · Neo4j: ${estadoSync(ultima.neo4j_sync.status)}` : 'Los contadores aparecerán cuando el servidor procese un archivo.' }}
+        {{
+          ultimaImportacion
+            ? `${ultimaImportacion.archivo} · ${ultimaImportacion.duracion_ms} ms · Neo4j: ${formatearEstadoNeo4j(ultimaImportacion.neo4j_sync.status)}`
+            : 'Los contadores aparecerán cuando el servidor procese un archivo.'
+        }}
       </p>
       <ul class="stat-grid">
-        <li v-for="stat in resumen" :key="stat.label" class="stat">
-          <span class="stat__value">{{ stat.value }}</span>
-          <span class="stat__label">{{ stat.label }}</span>
+        <li v-for="contador in resumenContadores" :key="contador.label" class="stat">
+          <span class="stat__value">{{ contador.value }}</span>
+          <span class="stat__label">{{ contador.label }}</span>
         </li>
       </ul>
     </section>
 
-    <BaseCard title="Carga de archivos CSV" description="Selecciona uno o varios CSV UTF-8. El servidor valida el tamaño, los encabezados y las filas.">
+    <BaseCard
+      title="Carga de archivos CSV"
+      description="Selecciona uno o varios CSV UTF-8. El servidor valida el tamaño, los encabezados y las filas."
+    >
       <input
-        ref="input"
+        ref="inputArchivo"
         class="sr-only"
         type="file"
         accept=".csv,text/csv"
@@ -223,35 +302,42 @@ onMounted(() => {
         :disabled="ocupado"
         tabindex="-1"
         aria-label="Archivos CSV"
-        @change="cambioArchivos"
+        @change="alSeleccionarArchivos"
       />
       <div
         class="placeholder placeholder--dropzone"
         :class="{ 'dropzone--active': arrastrando }"
         @dragover.prevent="arrastrando = !ocupado"
         @dragleave.prevent="arrastrando = false"
-        @drop.prevent="soltarArchivos"
+        @drop.prevent="alSoltarArchivos"
       >
         <AppIcon name="upload" :size="32" />
-        <p class="placeholder__title">{{ ocupado ? 'Procesando archivos…' : 'Arrastra tus archivos CSV aquí' }}</p>
+        <p class="placeholder__title">
+          {{ ocupado ? 'Procesando archivos…' : 'Arrastra tus archivos CSV aquí' }}
+        </p>
         <p>También puedes seleccionarlos desde tu equipo.</p>
-        <button class="btn btn--primary" type="button" :disabled="ocupado" @click="input?.click()">
+        <button class="btn btn--primary" type="button" :disabled="ocupado" @click="inputArchivo?.click()">
           Seleccionar archivos
         </button>
       </div>
 
       <div v-if="archivosSeleccionados.length" class="upload-queue">
-        <div v-for="file in archivosSeleccionados" :key="file.name" class="upload-file">
+        <div v-for="archivo in archivosSeleccionados" :key="archivo.name" class="upload-file">
           <div>
-            <strong>{{ file.name }}</strong>
-            <p class="hint">{{ tamano(file.size) }}</p>
+            <strong>{{ archivo.name }}</strong>
+            <p class="hint">{{ formatearTamanoArchivo(archivo.size) }}</p>
           </div>
         </div>
         <div class="upload-actions">
           <button class="btn btn--primary" type="button" :disabled="ocupado" @click="subirArchivos">
             {{ ocupado ? 'Procesando…' : `Importar ${archivosSeleccionados.length} archivo(s)` }}
           </button>
-          <button class="btn btn--ghost" type="button" :disabled="ocupado" @click="archivosSeleccionados = []">
+          <button
+            class="btn btn--ghost"
+            type="button"
+            :disabled="ocupado"
+            @click="archivosSeleccionados = []"
+          >
             Limpiar lista
           </button>
         </div>
@@ -260,13 +346,31 @@ onMounted(() => {
 
     <BaseCard title="Historial de importaciones" description="Registros consultados directamente al backend.">
       <div class="upload-actions">
-        <button class="btn btn--ghost" type="button" :disabled="ocupado || cargandoHistorial" @click="cargarHistorial">
-          <AppIcon name="refresh" :size="16" />Actualizar historial
+        <button
+          class="btn btn--ghost"
+          type="button"
+          :disabled="ocupado || cargandoHistorial"
+          @click="cargarHistorial"
+        >
+          <AppIcon name="refresh" :size="16" />
+          Actualizar historial
+        </button>
+        <button
+          class="btn btn--primary"
+          type="button"
+          :disabled="ocupado || sincronizandoId !== null || !historial.length"
+          @click="sincronizarTodoNeo4j"
+        >
+          {{ sincronizandoId === 'all' ? 'Sincronizando Neo4j…' : 'Sincronizar todo con Neo4j' }}
         </button>
         <span class="hint">{{ total }} importaciones</span>
       </div>
-      <p v-if="errorHistorial" class="upload-alert upload-alert--error" role="alert">{{ errorHistorial }}</p>
+
+      <p v-if="errorHistorial" class="upload-alert upload-alert--error" role="alert">
+        {{ errorHistorial }}
+      </p>
       <p v-if="cargandoHistorial" class="hint" role="status">Consultando historial…</p>
+
       <div class="table-wrap">
         <table class="table">
           <thead>
@@ -280,28 +384,47 @@ onMounted(() => {
               <th>Advertencias</th>
               <th>Estado</th>
               <th>Neo4j</th>
-              <th>Detalle</th>
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="registro in historial" :key="registro.id">
               <td>{{ registro.archivo }}</td>
-              <td>{{ fecha(registro.created_at) }}</td>
+              <td>{{ formatearFecha(registro.created_at) }}</td>
               <td>{{ registro.contadores.leidos }}</td>
               <td>{{ registro.contadores.nuevos }}</td>
               <td>{{ registro.contadores.duplicados }}</td>
               <td>{{ registro.contadores.rechazados }}</td>
               <td>{{ registro.contadores.advertencias }}</td>
               <td>
-                <span class="badge" :class="registro.estado === 'FALLO' ? 'badge--warning' : 'badge--muted'">
-                  {{ estado(registro.estado) }}
+                <span
+                  class="badge"
+                  :class="registro.estado === 'FALLO' ? 'badge--warning' : 'badge--muted'"
+                >
+                  {{ formatearEstadoImportacion(registro.estado) }}
                 </span>
               </td>
-              <td>{{ estadoSync(registro.neo4j_sync.status) }}</td>
+              <td>{{ formatearEstadoNeo4j(registro.neo4j_sync.status) }}</td>
               <td>
-                <button class="btn btn--ghost" type="button" :disabled="ocupado" @click="verDetalle(registro)">
-                  Ver detalle
-                </button>
+                <div class="upload-actions">
+                  <button
+                    class="btn btn--ghost"
+                    type="button"
+                    :disabled="ocupado"
+                    @click="verDetalleImportacion(registro)"
+                  >
+                    Ver detalle
+                  </button>
+                  <button
+                    v-if="registro.contadores.validos > 0 && registro.neo4j_sync.status !== 'SINCRONIZADO'"
+                    class="btn btn--ghost"
+                    type="button"
+                    :disabled="ocupado || sincronizandoId !== null"
+                    @click="sincronizarRegistroNeo4j(registro)"
+                  >
+                    {{ sincronizandoId === registro.id ? 'Sincronizando…' : 'Sincronizar Neo4j' }}
+                  </button>
+                </div>
               </td>
             </tr>
             <tr v-if="!historial.length && !cargandoHistorial && !errorHistorial">
@@ -310,12 +433,23 @@ onMounted(() => {
           </tbody>
         </table>
       </div>
+
       <div class="upload-pagination">
-        <button class="btn btn--ghost" type="button" :disabled="paginaAnterior === null || cargandoHistorial || ocupado" @click="cambiarPagina(paginaAnterior)">
+        <button
+          class="btn btn--ghost"
+          type="button"
+          :disabled="paginaAnterior === null || cargandoHistorial || ocupado"
+          @click="cambiarPaginaHistorial(paginaAnterior)"
+        >
           Anterior
         </button>
         <span class="hint">Página {{ pagina }} de {{ paginas }}</span>
-        <button class="btn btn--ghost" type="button" :disabled="paginaSiguiente === null || cargandoHistorial || ocupado" @click="cambiarPagina(paginaSiguiente)">
+        <button
+          class="btn btn--ghost"
+          type="button"
+          :disabled="paginaSiguiente === null || cargandoHistorial || ocupado"
+          @click="cambiarPaginaHistorial(paginaSiguiente)"
+        >
           Siguiente
         </button>
       </div>
@@ -323,50 +457,84 @@ onMounted(() => {
 
     <BaseCard
       title="Errores y advertencias"
-      :description="seleccionada ? `${seleccionada.archivo} · ${seleccionada.id}` : 'Selecciona una importación del historial para ver su detalle.'"
+      :description="
+        importacionSeleccionada
+          ? `${importacionSeleccionada.archivo} · ${importacionSeleccionada.id}`
+          : 'Selecciona una importación del historial para ver su detalle.'
+      "
     >
-      <template v-if="seleccionada">
+      <template v-if="importacionSeleccionada">
         <div class="upload-actions">
           <label class="field">
             Tipo de incidencia
-            <select v-model="filtro" :disabled="cargandoIncidencias" @change="cambiarFiltro">
+            <select
+              v-model="filtroIncidencia"
+              :disabled="cargandoIncidencias"
+              @change="cambiarFiltroIncidencias"
+            >
               <option value="">Todos</option>
               <option value="ERROR">Errores</option>
               <option value="ADVERTENCIA">Advertencias</option>
             </select>
           </label>
-          <button class="btn btn--ghost" type="button" :disabled="cargandoIncidencias" @click="actualizarSeleccionada">
+          <button
+            class="btn btn--ghost"
+            type="button"
+            :disabled="cargandoIncidencias"
+            @click="actualizarImportacionSeleccionada"
+          >
             Actualizar detalle
           </button>
           <span class="hint">{{ totalIncidencias }} incidencias</span>
         </div>
-        <p v-if="errorIncidencias" class="upload-alert upload-alert--error" role="alert">{{ errorIncidencias }}</p>
+
+        <p v-if="errorIncidencias" class="upload-alert upload-alert--error" role="alert">
+          {{ errorIncidencias }}
+        </p>
         <p v-if="cargandoIncidencias" class="hint" role="status">Consultando incidencias…</p>
+
         <div
-          v-for="issue in incidencias"
-          :key="`${issue.importacion_id}:${issue.fila}:${issue.tipo}:${issue.codigos.join(',')}`"
+          v-for="incidencia in incidencias"
+          :key="`${incidencia.importacion_id}:${incidencia.fila}:${incidencia.tipo}:${incidencia.codigos.join(',')}`"
           class="upload-issue"
         >
           <div class="upload-actions">
-            <strong>Fila {{ issue.fila }}</strong>
-            <span class="badge" :class="issue.tipo === 'ERROR' ? 'badge--warning' : 'badge--muted'">{{ issue.tipo }}</span>
+            <strong>Fila {{ incidencia.fila }}</strong>
+            <span
+              class="badge"
+              :class="incidencia.tipo === 'ERROR' ? 'badge--warning' : 'badge--muted'"
+            >
+              {{ incidencia.tipo }}
+            </span>
           </div>
-          <p>{{ issue.mensaje }}</p>
-          <p class="hint">{{ issue.codigos.join(' · ') }}</p>
+          <p>{{ incidencia.mensaje }}</p>
+          <p class="hint">{{ incidencia.codigos.join(' · ') }}</p>
           <details>
             <summary>Datos originales</summary>
-            <pre>{{ JSON.stringify(issue.datos_crudos, null, 2) }}</pre>
+            <pre>{{ JSON.stringify(incidencia.datos_crudos, null, 2) }}</pre>
           </details>
         </div>
+
         <p v-if="!incidencias.length && !cargandoIncidencias && !errorIncidencias" class="hint">
           No hay incidencias para este filtro.
         </p>
+
         <div class="upload-pagination">
-          <button class="btn btn--ghost" type="button" :disabled="incidenciaAnterior === null || cargandoIncidencias" @click="cambiarPaginaIncidencias(incidenciaAnterior)">
+          <button
+            class="btn btn--ghost"
+            type="button"
+            :disabled="incidenciaAnterior === null || cargandoIncidencias"
+            @click="cambiarPaginaIncidencias(incidenciaAnterior)"
+          >
             Anterior
           </button>
           <span class="hint">Página {{ paginaIncidencias }} de {{ paginasIncidencias }}</span>
-          <button class="btn btn--ghost" type="button" :disabled="incidenciaSiguiente === null || cargandoIncidencias" @click="cambiarPaginaIncidencias(incidenciaSiguiente)">
+          <button
+            class="btn btn--ghost"
+            type="button"
+            :disabled="incidenciaSiguiente === null || cargandoIncidencias"
+            @click="cambiarPaginaIncidencias(incidenciaSiguiente)"
+          >
             Siguiente
           </button>
         </div>
@@ -376,20 +544,96 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.upload-actions, .upload-pagination { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-.upload-pagination { justify-content: space-between; }
-.upload-actions .field { min-width: 160px; }
-.upload-result-heading h2 { font-size: 16px; }
-.upload-result-description { margin: 8px 0 16px; }
-.upload-alert { padding: 13px 16px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--blue-soft); font-size: 12px; overflow-wrap: anywhere; }
-.upload-alert--error { background: var(--coral-soft); }
-.dropzone--active { outline: 2px solid var(--color-primary); outline-offset: -3px; }
-.upload-file { display: flex; gap: 15px; align-items: center; justify-content: space-between; padding: 16px 0; border-bottom: 1px solid var(--color-border); }
-.upload-file > div { min-width: 0; overflow-wrap: anywhere; }
-.upload-file strong { font-size: 13px; font-weight: 500; }
-.upload-queue > .upload-actions { margin-top: 16px; }
-.upload-issue { display: grid; gap: 8px; padding: 18px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 12px; overflow-wrap: anywhere; }
-.upload-issue summary { cursor: pointer; color: var(--color-primary); }
-.upload-issue pre { overflow: auto; max-height: 250px; white-space: pre-wrap; padding: 12px; border-radius: 6px; background: var(--color-surface-muted); }
-.table td { vertical-align: top; }
+.upload-actions,
+.upload-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.upload-pagination {
+  justify-content: space-between;
+}
+
+.upload-actions .field {
+  min-width: 160px;
+}
+
+.upload-result-heading h2 {
+  font-size: 16px;
+}
+
+.upload-result-description {
+  margin: 8px 0 16px;
+}
+
+.upload-alert {
+  padding: 13px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--blue-soft);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.upload-alert--error {
+  background: var(--coral-soft);
+}
+
+.dropzone--active {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -3px;
+}
+
+.upload-file {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.upload-file > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.upload-file strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.upload-queue > .upload-actions {
+  margin-top: 16px;
+}
+
+.upload-issue {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.upload-issue summary {
+  cursor: pointer;
+  color: var(--color-primary);
+}
+
+.upload-issue pre {
+  overflow: auto;
+  max-height: 250px;
+  white-space: pre-wrap;
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--color-surface-muted);
+}
+
+.table td {
+  vertical-align: top;
+}
 </style>
