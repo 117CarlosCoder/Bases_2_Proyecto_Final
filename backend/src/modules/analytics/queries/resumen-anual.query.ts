@@ -1,8 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Collection, Db } from 'mongodb';
+import type { Filter } from 'mongodb';
 import { MONGODB_DB } from '../../database/database.constants';
 import type { EvaluacionDocument } from '../../imports/entities/evaluacion.entity';
-import type { ResumenAnualDashboard } from '../entities/analytics.entity';
+import type { PuntoSerieDashboard, ResumenAnualDashboard } from '../entities/analytics.entity';
+
+const ETIQUETAS_MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
 interface AgregadoAnualRaw {
   total: number;
@@ -12,6 +15,7 @@ interface AgregadoAnualRaw {
 }
 
 interface AgregadoMensualRaw {
+  year: number;
   month: number;
   total: number;
   approved: number;
@@ -33,11 +37,13 @@ export class ResumenAnualQuery {
       .map(String);
   }
 
-  async ejecutar(anio: number): Promise<ResumenAnualDashboard> {
-    const [anuales, mensuales] = await Promise.all([
+  async ejecutar(anio?: number): Promise<ResumenAnualDashboard> {
+    const filtro: Filter<EvaluacionDocument> = anio === undefined ? {} : { anio_evaluacion: anio };
+
+    const [anuales, mensuales, aniosDisponibles] = await Promise.all([
       this.evaluaciones
         .aggregate<AgregadoAnualRaw>([
-          { $match: { anio_evaluacion: anio } },
+          { $match: filtro },
           {
             $group: {
               _id: null,
@@ -60,10 +66,26 @@ export class ResumenAnualQuery {
         .toArray(),
       this.evaluaciones
         .aggregate<AgregadoMensualRaw>([
-          { $match: { anio_evaluacion: anio } },
+          { $match: filtro },
+          {
+            $project: {
+              anio_evaluacion: 1,
+              aprobado: 1,
+              month: {
+                $cond: [
+                  { $ne: ['$fecha_evaluacion', null] },
+                  { $toInt: { $substrBytes: ['$fecha_evaluacion', 5, 2] } },
+                  '$mes_asignacion',
+                ],
+              },
+            },
+          },
           {
             $group: {
-              _id: '$mes_asignacion',
+              _id: {
+                year: '$anio_evaluacion',
+                month: '$month',
+              },
               total: { $sum: 1 },
               approved: { $sum: { $cond: ['$aprobado', 1, 0] } },
             },
@@ -71,23 +93,58 @@ export class ResumenAnualQuery {
           {
             $project: {
               _id: 0,
-              month: '$_id',
+              year: '$_id.year',
+              month: '$_id.month',
               total: 1,
               approved: 1,
             },
           },
+          { $sort: { year: 1, month: 1 } },
         ])
         .toArray(),
+      anio === undefined ? this.listarAnios() : Promise.resolve([String(anio)]),
     ]);
 
     const months = Array.from({ length: 12 }, () => ({ total: 0, approved: 0 }));
     for (const item of mensuales) {
       if (item.month >= 1 && item.month <= 12) {
+        const actual = months[item.month - 1]!;
         months[item.month - 1] = {
-          total: item.total,
-          approved: item.approved,
+          total: actual.total + item.total,
+          approved: actual.approved + item.approved,
         };
       }
+    }
+
+    let points: PuntoSerieDashboard[];
+    if (anio === undefined && aniosDisponibles.length > 0) {
+      const mapa = new Map<string, { total: number; approved: number }>();
+      for (const item of mensuales) {
+        if (item.month >= 1 && item.month <= 12) {
+          mapa.set(`${item.year}-${item.month}`, {
+            total: item.total,
+            approved: item.approved,
+          });
+        }
+      }
+
+      points = [];
+      for (const anioTexto of aniosDisponibles) {
+        for (let mes = 1; mes <= 12; mes++) {
+          const registro = mapa.get(`${anioTexto}-${mes}`) ?? { total: 0, approved: 0 };
+          points.push({
+            label: `${ETIQUETAS_MESES[mes - 1]} ${anioTexto}`,
+            total: registro.total,
+            approved: registro.approved,
+          });
+        }
+      }
+    } else {
+      points = months.map((item, i) => ({
+        label: ETIQUETAS_MESES[i]!,
+        total: item.total,
+        approved: item.approved,
+      }));
     }
 
     const resumen = anuales[0] ?? {
@@ -101,14 +158,15 @@ export class ResumenAnualQuery {
       resumen.total > 0 ? Math.round((resumen.approved / resumen.total) * 100) : 0;
 
     return {
-      year: String(anio),
+      year: anio === undefined ? 'Todos' : String(anio),
       total: resumen.total,
       approved: resumen.approved,
       applicants: resumen.applicants,
       careers: resumen.careers,
       approvalPercentage,
-      periodLabel: `Año ${anio}`,
+      periodLabel: anio === undefined ? 'Todos los años' : `Año ${anio}`,
       months,
+      points,
     };
   }
 }

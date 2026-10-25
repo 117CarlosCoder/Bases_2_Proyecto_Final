@@ -1,8 +1,8 @@
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
-import { FiltroAnioAnalyticsDto } from './filtro-anio-analytics.dto';
+import { FiltroPeriodoAnalyticsDto } from './filtro-periodo-analytics.dto';
 
-export class ConsultaAnalyticsDto extends FiltroAnioAnalyticsDto {
+export class ConsultaAnalyticsDto extends FiltroPeriodoAnalyticsDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()

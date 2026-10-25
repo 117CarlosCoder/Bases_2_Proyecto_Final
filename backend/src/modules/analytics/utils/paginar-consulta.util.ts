@@ -3,7 +3,7 @@ import type { Collection, Document } from 'mongodb';
 import type { ConsultaAnalyticsDto } from '../dto/consulta-analytics.dto';
 import type { PaginaConsulta } from '../entities/analytics.entity';
 
-function normalizarTextoBusqueda(valor: unknown): string {
+function normalizarTexto(valor: unknown): string {
   return String(valor ?? '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -40,23 +40,18 @@ export async function paginarConsulta<T extends Record<string, any>>(
   }
 
   const direccion = query.direccion ?? (defaultSort[ordenarPor] === -1 ? 'desc' : 'asc');
-
-  const todosLosRegistros = pipeline.length > 0
+  const registros = pipeline.length > 0
     ? await collection.aggregate<T>(pipeline).toArray()
     : await collection.find<T>({}, { projection: { _id: 0 } }).toArray();
 
-  const totalSinBusqueda = todosLosRegistros.length;
-
-  const textoBusqueda = normalizarTextoBusqueda(query.buscar);
+  const textoBusqueda = normalizarTexto(query.buscar);
   const filtrados = textoBusqueda
-    ? todosLosRegistros.filter(fila =>
-        fields.some(campo => normalizarTextoBusqueda(fila[campo]).includes(textoBusqueda)),
-      )
-    : todosLosRegistros;
+    ? registros.filter(fila => fields.some(campo => normalizarTexto(fila[campo]).includes(textoBusqueda)))
+    : registros;
 
   const ordenados = [...filtrados].sort((a, b) => {
-    const resultadoPrincipal = compararValores(a[ordenarPor], b[ordenarPor], direccion);
-    if (resultadoPrincipal !== 0) return resultadoPrincipal;
+    const comparacionPrincipal = compararValores(a[ordenarPor], b[ordenarPor], direccion);
+    if (comparacionPrincipal !== 0) return comparacionPrincipal;
 
     for (const [campo, dir] of Object.entries(defaultSort)) {
       const desempate = compararValores(a[campo], b[campo], dir === -1 ? 'desc' : 'asc');
@@ -74,7 +69,7 @@ export async function paginarConsulta<T extends Record<string, any>>(
   return {
     items,
     total,
-    totalSinBusqueda,
+    totalSinBusqueda: registros.length,
     pagina,
     limite,
     paginas,
