@@ -14,7 +14,12 @@
     "node": ">=20.19.0"
   },
   "dependencies": {
+    "@internationalized/date": "^3.12.4",
+    "@vueuse/core": "^15.0.0",
+    "chart.js": "^4.6.1",
+    "reka-ui": "^2.11.0",
     "vue": "^3.5.44",
+    "vue-chartjs": "^5.3.4",
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
