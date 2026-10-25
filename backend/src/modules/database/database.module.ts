@@ -2,11 +2,9 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Db, MongoClient } from 'mongodb';
 import neo4j, { Driver } from 'neo4j-driver';
-import {
-  MONGODB_CLIENT,
-  MONGODB_DB,
-  NEO4J_DRIVER,
-} from './database.constants';
+import { MongoSchemaService } from './mongo-schema.service';
+import { Neo4jSchemaService } from './neo4j-schema.service';
+import { MONGODB_CLIENT, MONGODB_DB, NEO4J_DRIVER } from './database.constants';
 import { DatabaseService } from './database.service';
 
 @Global()
@@ -54,6 +52,8 @@ import { DatabaseService } from './database.service';
         });
       },
     },
+    MongoSchemaService,
+    Neo4jSchemaService,
     DatabaseService,
   ],
   exports: [MONGODB_CLIENT, MONGODB_DB, NEO4J_DRIVER, DatabaseService],

@@ -1,18 +1,10 @@
-import {
-  Inject,
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Db, MongoClient } from 'mongodb';
 import { Driver } from 'neo4j-driver';
-import {
-  EngineHealthStatus,
-  MONGODB_CLIENT,
-  MONGODB_DB,
-  NEO4J_DRIVER,
-} from './database.constants';
+import { EngineHealthStatus, MONGODB_CLIENT, MONGODB_DB, NEO4J_DRIVER } from './database.constants';
+import { MongoSchemaService } from './mongo-schema.service';
+import { Neo4jSchemaService } from './neo4j-schema.service';
+
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -22,6 +14,8 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     @Inject(MONGODB_CLIENT) private readonly mongoClient: MongoClient,
     @Inject(MONGODB_DB) private readonly mongoDb: Db,
     @Inject(NEO4J_DRIVER) private readonly neo4jDriver: Driver,
+    private readonly mongoSchemaService: MongoSchemaService,
+    private readonly neo4jSchemaService: Neo4jSchemaService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -36,6 +30,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
     if (mongoStatus.status === 'up') {
       this.logger.log(`MongoDB conectado (${mongoStatus.latencyMs}ms)`);
+      await this.mongoSchemaService.indexandoMongo();
     } else {
       this.logger.warn(
         `MongoDB no disponible al iniciar (modo degradado): ${mongoStatus.error}`,
@@ -44,6 +39,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
     if (neo4jStatus.status === 'up') {
       this.logger.log(`Neo4j conectado (${neo4jStatus.latencyMs}ms)`);
+      await this.neo4jSchemaService.restriccionNeo4j();
     } else {
       this.logger.warn(
         `Neo4j no disponible al iniciar (modo degradado): ${neo4jStatus.error}`,
@@ -151,4 +147,6 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       }
     }
   }
+
+
 }

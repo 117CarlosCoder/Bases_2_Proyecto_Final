@@ -1,14 +1,6 @@
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
-import {
-  IsInt,
-  IsNotEmpty,
-  IsNumber,
-  IsString,
-  Max,
-  Min,
-  validateSync,
-} from 'class-validator';
+import { IsInt, IsNotEmpty, IsNumber, IsString, Max, Min, validateSync } from 'class-validator';
 
 export class EnvironmentVariables {
   @IsInt()
