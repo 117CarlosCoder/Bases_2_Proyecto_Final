@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { useDark, useToggle } from '@vueuse/core'
 import { RouterLink, RouterView } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import HealthBanner from '@/components/HealthBanner.vue'
@@ -13,24 +14,11 @@ const navItems = [
   { to: '/comparacion', label: 'Comparación', icon: 'chart' },
 ]
 const expanded = ref(false)
-const dark = ref(false)
+const dark = useDark({ selector: 'html', attribute: 'data-theme', valueDark: 'dark', valueLight: 'light', storageKey: 'usac-theme', initialValue: 'light' })
+const toggleTheme = useToggle(dark)
 const health = useHealth()
 
-function applyTheme() {
-  document.documentElement.dataset.theme = dark.value ? 'dark' : 'light'
-}
-function toggleTheme() {
-  dark.value = !dark.value
-  applyTheme()
-  try {
-    localStorage.setItem('usac-theme', dark.value ? 'dark' : 'light')
-  } catch {}
-}
 onMounted(() => {
-  try {
-    dark.value = localStorage.getItem('usac-theme') === 'dark'
-  } catch {}
-  applyTheme()
   health.startAutoRefresh()
 })
 onBeforeUnmount(() => health.stopAutoRefresh())
@@ -50,10 +38,6 @@ onBeforeUnmount(() => health.stopAutoRefresh())
         </RouterLink>
       </nav>
       <div class="sidebar-bottom">
-        <a class="nav__link" href="/data/muestra_20_filas.csv" download title="Descargar CSV de muestra" aria-label="Descargar CSV de muestra">
-          <span class="nav__icon"><AppIcon name="download" /></span>
-          <span class="rail-label">CSV de muestra</span>
-        </a>
         <div class="sidebar-signature" title="Universidad de San Carlos de Guatemala">US<span class="rail-label">AC · Guatemala</span></div>
       </div>
     </aside>
@@ -61,11 +45,11 @@ onBeforeUnmount(() => health.stopAutoRefresh())
       <header class="topbar">
         <div class="topbar__intro">
           <button class="icon-button menu-button" type="button" :aria-expanded="expanded" aria-controls="main-navigation" aria-label="Mostrar u ocultar nombres del menú" @click="expanded = !expanded"><AppIcon name="menu" :size="21" /></button>
-          <p class="topbar__greeting">Hola, <strong>bienvenido</strong> <span class="wave" aria-hidden="true">👋</span></p>
+          <p class="topbar__greeting">Sistema de Análisis Académicos</p>
           <span class="topbar__context">Tu espacio de análisis académico</span>
         </div>
         <div class="topbar__actions">
-          <button class="icon-button theme-button" type="button" :aria-label="dark ? 'Activar modo claro' : 'Activar modo oscuro'" :title="dark ? 'Modo claro' : 'Modo oscuro'" @click="toggleTheme"><AppIcon :name="dark ? 'sun' : 'moon'" /></button>
+          <button class="icon-button theme-button" type="button" :aria-label="dark ? 'Activar modo claro' : 'Activar modo oscuro'" :title="dark ? 'Modo claro' : 'Modo oscuro'" @click="toggleTheme()"><AppIcon :name="dark ? 'sun' : 'moon'" /></button>
           <HealthBanner />
           <img class="user-avatar usac-logo" src="/images/usac-escudo.png" alt="Escudo de la USAC" width="38" height="38" />
         </div>

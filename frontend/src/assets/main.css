@@ -128,22 +128,11 @@ a, button, summary, select, input { -webkit-tap-highlight-color: transparent; }
 .dot, .legend__swatch { display: inline-block; flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; }
 .dot--blue { background: #3366ff; }
 .dot--green { background: #00c98d; }
-.line-chart { display: block; width: 100%; margin-top: 7px; overflow: visible; }
-.chart-grid line { stroke: var(--color-border); stroke-width: 1; }
-.chart-grid text { font-size: 10px; fill: var(--color-text-muted); }
-.chart-line { fill: none; stroke-width: 2.5; stroke-linecap: round; }
-.chart-line--blue { stroke: #3366ff; }
-.chart-line--green { stroke: #00c98d; }
-.chart-selection { fill: var(--color-primary-soft); opacity: .65; }
-.chart-point { stroke: var(--color-surface); stroke-width: 2; }
-.chart-point--blue { fill: #3366ff; }
-.chart-point--green { fill: #00c98d; }
-.chart-month { font-size: 12px; fill: var(--color-text-muted); }
 .chart-detail { min-height: 28px; display: flex; flex-wrap: wrap; gap: 7px 16px; font-size: 11px; color: var(--color-text-muted); margin-top: 3px; }
 .chart-detail strong { color: var(--color-text); }
-.sample-notice { display: flex; align-items: flex-start; gap: 8px; padding-top: 15px; margin-top: auto; border-top: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 10px; }
-.sample-notice svg { margin-top: 1px; }
-.sample-notice strong { font-weight: 600; }
+.data-notice { display: flex; align-items: flex-start; gap: 8px; padding-top: 15px; margin-top: auto; border-top: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 10px; }
+.data-notice svg { margin-top: 1px; }
+.data-notice strong { font-weight: 600; }
 .academic-profile { display: flex; align-items: center; gap: 12px; padding: 16px; min-height: 88px; background: var(--color-surface-muted); border-radius: 8px; }
 .academic-avatar { width: 45px; height: 45px; border: 1px solid var(--color-border); }
 .academic-profile strong { display: block; font-size: 12px; font-weight: 600; }
@@ -272,11 +261,8 @@ a, button, summary, select, input { -webkit-tap-highlight-color: transparent; }
   .chart { margin-top: 26px; }
   .chart-subheading { align-items: flex-start; flex-direction: column; gap: 10px; }
   .chart-subheading .legend { font-size: 10px; }
-  .line-chart { margin-top: 20px; }
-  .chart-month { font-size: 22px; }
-  .chart-grid text { font-size: 20px; }
   .chart-detail { font-size: 10px; margin-top: 10px; }
-  .sample-notice { font-size: 9px; margin-top: 8px; }
+  .data-notice { font-size: 9px; margin-top: 8px; }
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .summary-card { padding: 21px; }
   .summary-card h3 { font-size: 14px; }
