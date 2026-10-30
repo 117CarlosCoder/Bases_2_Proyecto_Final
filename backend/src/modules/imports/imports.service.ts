@@ -22,6 +22,7 @@ export class ImportsService {
   private readonly evaluaciones: Collection<EvaluacionDocument>;
   private readonly importaciones: Collection<ImportRecord>;
   private readonly incidencias: Collection<ImportFlagRecord>;
+  private readonly resumenCarrera: Collection;
 
   constructor(
     @Inject(MONGODB_DB) mongoDb: Db,
@@ -32,6 +33,31 @@ export class ImportsService {
     this.evaluaciones = mongoDb.collection('evaluaciones');
     this.importaciones = mongoDb.collection('importaciones');
     this.incidencias = mongoDb.collection('errores_importacion');
+    this.resumenCarrera = mongoDb.collection('resumen_carrera');
+  }
+
+  async vaciarBasesDeDatos() {
+    const [resEval, resImp, resInc, resCar] = await Promise.all([
+      this.evaluaciones.deleteMany({}),
+      this.importaciones.deleteMany({}),
+      this.incidencias.deleteMany({}),
+      this.resumenCarrera.deleteMany({}),
+    ]);
+
+    const session = this.neo4jDriver.session();
+    try {
+      await session.run('MATCH (n) DETACH DELETE n');
+    } finally {
+      await session.close();
+    }
+
+    return {
+      evaluacionesEliminadas: resEval.deletedCount,
+      importacionesEliminadas: resImp.deletedCount,
+      incidenciasEliminadas: resInc.deletedCount,
+      resumenesEliminados: resCar.deletedCount,
+      neo4jLimpio: true,
+    };
   }
 
   async cargarCsv(csvContent: string, fileName: string): Promise<ImportRecord> {
@@ -151,16 +177,26 @@ export class ImportsService {
   }
 
   async listarImportaciones(pagina = 1, limite = 20) {
-    const total = await this.importaciones.countDocuments({});
-    const meta = this.metadatosPagina(total, pagina, limite);
-    const items = await this.importaciones
-      .find({}, { projection: { _id: 0 } })
-      .sort({ created_at: -1 })
-      .skip((meta.pagina - 1) * limite)
-      .limit(limite)
+    const paginaSegura = Math.max(1, pagina);
+    const [resultado] = await this.importaciones
+      .aggregate<{ total: Array<{ count: number }>; items: ImportRecord[] }>([
+        {
+          $facet: {
+            total: [{ $count: 'count' }],
+            items: [
+              { $sort: { created_at: -1 } },
+              { $skip: (paginaSegura - 1) * limite },
+              { $limit: limite },
+              { $project: { _id: 0 } },
+            ],
+          },
+        },
+      ])
       .toArray();
 
-    return { items, ...meta };
+    const total = resultado?.total[0]?.count ?? 0;
+    const meta = this.metadatosPagina(total, paginaSegura, limite);
+    return { items: resultado?.items ?? [], ...meta };
   }
 
   async obtenerImportacion(id: string): Promise<ImportRecord> {
@@ -179,16 +215,27 @@ export class ImportsService {
     const filtro: Filter<ImportFlagRecord> = { importacion_id: importacionId };
     if (tipo !== undefined) filtro.tipo = tipo;
 
-    const total = await this.incidencias.countDocuments(filtro);
-    const meta = this.metadatosPagina(total, pagina, limite);
-    const items = await this.incidencias
-      .find(filtro, { projection: { _id: 0 } })
-      .sort({ fila: 1 })
-      .skip((meta.pagina - 1) * limite)
-      .limit(limite)
+    const paginaSegura = Math.max(1, pagina);
+    const [resultado] = await this.incidencias
+      .aggregate<{ total: Array<{ count: number }>; items: ImportFlagRecord[] }>([
+        { $match: filtro },
+        {
+          $facet: {
+            total: [{ $count: 'count' }],
+            items: [
+              { $sort: { fila: 1 } },
+              { $skip: (paginaSegura - 1) * limite },
+              { $limit: limite },
+              { $project: { _id: 0 } },
+            ],
+          },
+        },
+      ])
       .toArray();
 
-    return { importacionId, items, ...meta };
+    const total = resultado?.total[0]?.count ?? 0;
+    const meta = this.metadatosPagina(total, paginaSegura, limite);
+    return { importacionId, items: resultado?.items ?? [], ...meta };
   }
 
   private async guardarLotesMongo(resultado: ResultadoCsv, registro: ImportRecord): Promise<void> {

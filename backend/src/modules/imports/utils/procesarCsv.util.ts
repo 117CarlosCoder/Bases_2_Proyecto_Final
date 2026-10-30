@@ -3,7 +3,7 @@ import type { ContextoFila, ContextoImportacion, ResultadoCsv } from './importac
 import { crearIncidencia } from './crearIncidencia.util';
 import { ErrorCsv } from './errorCsv';
 import { procesarFila } from './procesarFila.util';
-import { validarEncabezados } from './validarEncabezados.util';
+import { detectarAdvertenciasEncabezados, validarEncabezados } from './validarEncabezados.util';
 
 export async function procesarCsv(
   contenido: string,
@@ -36,6 +36,17 @@ export async function procesarCsv(
       if (encabezados === null) {
         originales = valores;
         encabezados = validarEncabezados(valores);
+        const erratasEncabezado = detectarAdvertenciasEncabezados(valores);
+        if (erratasEncabezado.length > 0) {
+          resultado.contadores.advertencias += 1;
+          resultado.incidencias.push(crearIncidencia(
+            { ...contexto, fila: entrada.info.lines, fechaProcesamiento },
+            'ADVERTENCIA',
+            ['WARN_TRUNCATED_HEADERS'],
+            `Encabezados con errata o truncamiento normalizados: ${erratasEncabezado.join(', ')}`,
+            { encabezados_originales: valores },
+          ));
+        }
         continue;
       }
 

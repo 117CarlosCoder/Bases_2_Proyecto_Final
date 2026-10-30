@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ImportsDto, IncidenciasImportsDto, PaginacionImportsDto } from './dto/imports.dto';
 import { ImportsService } from './imports.service';
 
@@ -16,6 +16,11 @@ export class ImportsController {
       dto.csvContent,
       dto.fileName,
     );
+  }
+
+  @Delete()
+  vaciarBasesDeDatos() {
+    return this.importsService.vaciarBasesDeDatos();
   }
 
   @Post(':id/sync-neo4j')
