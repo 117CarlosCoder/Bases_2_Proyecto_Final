@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { TabsRoot, TabsList, TabsTrigger, TabsContent } from 'reka-ui'
 import { useDebounceFn } from '@vueuse/core'
 import AppIcon from './AppIcon.vue'
+import QueryResultChart from './QueryResultChart.vue'
 import { queries } from '@/config/dashboard-queries'
 import type { ConsultaDashboard, FilaConsulta, ParametrosTabla, QueryColumn, ResultadoConsulta } from '@/types/analytics'
 
@@ -34,6 +35,7 @@ const filas = computed<FilaConsulta[]>(() => {
 })
 
 const textoBusqueda = ref(props.params.buscar)
+const mostrarMongo = ref(false)
 
 const enviarBusquedaConRetraso = useDebounceFn((valor: string, consulta: ConsultaDashboard) => {
   if (consulta === props.selected && valor === textoBusqueda.value && valor !== props.params.buscar) {
@@ -141,17 +143,32 @@ const mensajeTablaVacia = computed(() => {
           <p>{{ consultaActiva.description }}</p>
         </div>
 
-        <button
-          v-if="selected === 'p6'"
-          class="btn btn--ghost"
-          type="button"
-          :disabled="materializing || loading"
-          @click="$emit('recalculate')"
-        >
-          <AppIcon name="refresh" :size="15" />
-          {{ materializing ? 'Recalculando…' : 'Recalcular resumen' }}
-        </button>
+        <div class="query-panel-actions">
+          <button
+            v-if="selected === 'p6'"
+            class="btn btn--ghost"
+            type="button"
+            :disabled="materializing || loading"
+            @click="$emit('recalculate')"
+          >
+            <AppIcon name="refresh" :size="15" />
+            {{ materializing ? 'Recalculando…' : 'Recalcular resumen' }}
+          </button>
+
+          <button
+            v-if="response?.mongoQuery"
+            class="btn btn--ghost"
+            type="button"
+            @click="mostrarMongo = !mostrarMongo"
+          >
+            {{ mostrarMongo ? 'Ocultar MongoDB' : 'Ver sentencia MongoDB' }}
+          </button>
+        </div>
       </header>
+
+      <div v-if="mostrarMongo && response?.mongoQuery" class="mongo-box-wrap">
+        <pre class="mongo-box"><code>{{ response.mongoQuery }}</code></pre>
+      </div>
 
       <div class="query-toolbar">
         <label class="query-search">
@@ -185,6 +202,13 @@ const mensajeTablaVacia = computed(() => {
           </select>
         </label>
       </div>
+
+      <QueryResultChart
+        v-if="filas.length > 0"
+        :query="consultaActiva"
+        :rows="filas"
+        :scope-label="response?.scopeLabel"
+      />
 
       <div
         class="table-wrap query-table-wrap"
@@ -349,6 +373,29 @@ const mensajeTablaVacia = computed(() => {
   flex-wrap: wrap;
   gap: 16px;
   padding: 23px 24px 19px;
+}
+
+.query-panel-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mongo-box-wrap {
+  padding: 0 24px 18px;
+}
+
+.mongo-box {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md, 8px);
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 260px;
+  overflow: auto;
 }
 
 .query-panel-title {

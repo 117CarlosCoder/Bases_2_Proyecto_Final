@@ -17,7 +17,10 @@
     "@internationalized/date": "^3.12.4",
     "@vueuse/core": "^15.0.0",
     "chart.js": "^4.6.1",
+    "chartjs-plugin-zoom": "^2.2.0",
+    "hammerjs": "^2.0.8",
     "reka-ui": "^2.11.0",
+    "vis-network": "^10.1.3",
     "vue": "^3.5.44",
     "vue-chartjs": "^5.3.4",
     "vue-router": "^4.6.4"

@@ -3,7 +3,7 @@ const rawBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_BASE_URL
 
 export const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '')
 
-const DEFAULT_TIMEOUT_MS = 8000
+const DEFAULT_TIMEOUT_MS = 30000
 
 export async function request<T>(
   path: string,

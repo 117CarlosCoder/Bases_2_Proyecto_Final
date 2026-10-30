@@ -169,6 +169,8 @@ async function actualizarPeriodo() {
 
   if (periodo.value !== 'year' && anioSeleccionado.value === 'all' && aniosDisponibles.value.length > 0) {
     anioSeleccionado.value = aniosDisponibles.value[aniosDisponibles.value.length - 1]!
+    await cargarDashboard()
+    return
   }
 
   if (periodo.value === 'year') {

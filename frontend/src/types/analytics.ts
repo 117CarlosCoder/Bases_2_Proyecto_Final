@@ -106,6 +106,7 @@ export interface PaginaConsulta<T = Record<string, unknown>> {
   ordenarPor: string
   direccion: 'asc' | 'desc'
   scopeLabel: string
+  mongoQuery?: string
 }
 
 export type FilaConsulta = Record<string, unknown>

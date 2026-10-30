@@ -40,6 +40,18 @@ export function resyncAllNeo4j(): Promise<{ syncedAt: string; nodesProcessed: nu
   }, IMPORT_TIMEOUT_MS)
 }
 
+export function clearAllDatabases(): Promise<{
+  evaluacionesEliminadas: number
+  importacionesEliminadas: number
+  incidenciasEliminadas: number
+  resumenesEliminados: number
+  neo4jLimpio: boolean
+}> {
+  return request('/imports', {
+    method: 'DELETE',
+  }, IMPORT_TIMEOUT_MS)
+}
+
 export function getImportErrors(
   id: string,
   tipo?: TipoIncidencia,

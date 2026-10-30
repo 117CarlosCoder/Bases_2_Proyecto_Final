@@ -2,12 +2,13 @@
 import { computed, onMounted, ref } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import BaseCard from '@/components/BaseCard.vue'
-import { getImportById, getImportErrors, listImports, resyncAllNeo4j, resyncImportNeo4j, uploadCsvFile } from '@/services/imports.service'
+import { clearAllDatabases, getImportById, getImportErrors, listImports, resyncAllNeo4j, resyncImportNeo4j, uploadCsvFile } from '@/services/imports.service'
 import type { ImportIssue, ImportRecord, TipoIncidencia } from '@/types/imports'
 
 const inputArchivo = ref<HTMLInputElement | null>(null)
 const archivosSeleccionados = ref<File[]>([])
 const ocupado = ref(false)
+const vaciandoBd = ref(false)
 const sincronizandoId = ref<string | null>(null)
 const arrastrando = ref(false)
 const mensaje = ref('')
@@ -148,7 +149,7 @@ async function sincronizarRegistroNeo4j(registro: ImportRecord) {
 }
 
 async function sincronizarTodoNeo4j() {
-  if (ocupado.value || sincronizandoId.value !== null) return
+  if (ocupado.value || vaciandoBd.value || sincronizandoId.value !== null) return
   sincronizandoId.value = 'all'
   errorHistorial.value = ''
   mensaje.value = ''
@@ -161,6 +162,33 @@ async function sincronizarTodoNeo4j() {
     errorHistorial.value = obtenerMensajeError(cause)
   } finally {
     sincronizandoId.value = null
+  }
+}
+
+async function vaciarBaseDeDatos() {
+  if (ocupado.value || vaciandoBd.value || sincronizandoId.value !== null) return
+  const confirmado = window.confirm(
+    '¿Estás seguro de que deseas vaciar todas las colecciones de MongoDB y todos los nodos de Neo4j? Esta acción no se puede deshacer.',
+  )
+  if (!confirmado) return
+
+  vaciandoBd.value = true
+  error.value = ''
+  errorHistorial.value = ''
+  mensaje.value = ''
+
+  try {
+    const res = await clearAllDatabases()
+    ultimaImportacion.value = null
+    importacionSeleccionada.value = null
+    incidencias.value = []
+    pagina.value = 1
+    mensaje.value = `Bases de datos vaciadas: ${res.evaluacionesEliminadas} evaluaciones, ${res.importacionesEliminadas} importaciones y grafo Neo4j limpiado.`
+    await cargarHistorial()
+  } catch (cause) {
+    error.value = obtenerMensajeError(cause)
+  } finally {
+    vaciandoBd.value = false
   }
 }
 
@@ -262,6 +290,14 @@ onMounted(() => {
           Importa tus archivos, revisa los resultados y consulta los errores de cada fila.
         </p>
       </div>
+      <button
+        class="btn btn--danger"
+        type="button"
+        :disabled="ocupado || vaciandoBd || sincronizandoId !== null"
+        @click="vaciarBaseDeDatos"
+      >
+        {{ vaciandoBd ? 'Vaciando bases de datos…' : 'Vaciar bases de datos' }}
+      </button>
     </header>
 
     <p v-if="error" class="upload-alert upload-alert--error" role="alert">{{ error }}</p>
@@ -635,5 +671,15 @@ onMounted(() => {
 
 .table td {
   vertical-align: top;
+}
+
+.btn--danger {
+  background: #dc2626;
+  color: #ffffff;
+  border: 1px solid #b91c1c;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: #b91c1c;
 }
 </style>
