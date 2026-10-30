@@ -191,4 +191,5 @@ export interface PaginaConsulta<T> {
   ordenarPor: string;
   direccion: 'asc' | 'desc';
   scopeLabel: string;
+  mongoQuery: string;
 }

@@ -16,20 +16,37 @@ export class ApplicantsService {
   }
 
   async obtenerFiltros(): Promise<FiltrosDisponiblesAspirantes> {
-    const [anios, carreras, materias, tipos, departamentos] = await Promise.all([
-      this.evaluaciones.distinct('anio_evaluacion'),
-      this.evaluaciones.distinct('carrera_objetivo'),
-      this.evaluaciones.distinct('materia_evaluada'),
-      this.evaluaciones.distinct('tipo_establecimiento'),
-      this.evaluaciones.distinct('departamento_establecimiento'),
-    ]);
+    const [filtros] = await this.evaluaciones
+      .aggregate<FiltrosDisponiblesAspirantes>([
+        {
+          $group: {
+            _id: null,
+            anios: { $addToSet: '$anio_evaluacion' },
+            carreras: { $addToSet: '$carrera_objetivo' },
+            materias: { $addToSet: '$materia_evaluada' },
+            tipos: { $addToSet: '$tipo_establecimiento' },
+            departamentos: { $addToSet: '$departamento_establecimiento' },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            anios: { $sortArray: { input: '$anios', sortBy: -1 } },
+            carreras: { $sortArray: { input: '$carreras', sortBy: 1 } },
+            materias: { $sortArray: { input: '$materias', sortBy: 1 } },
+            tipos: { $sortArray: { input: '$tipos', sortBy: 1 } },
+            departamentos: { $sortArray: { input: '$departamentos', sortBy: 1 } },
+          },
+        },
+      ])
+      .toArray();
 
-    return {
-      anios: anios.filter(valor => Number.isInteger(valor)).sort((a, b) => b - a),
-      carreras: carreras.filter(Boolean).sort(),
-      materias: materias.filter(Boolean).sort(),
-      tipos: tipos.filter(Boolean).sort(),
-      departamentos: departamentos.filter(Boolean).sort(),
+    return filtros ?? {
+      anios: [],
+      carreras: [],
+      materias: [],
+      tipos: [],
+      departamentos: [],
     };
   }
 
@@ -57,11 +74,7 @@ export class ApplicantsService {
           municipio_establecimiento: { $first: '$municipio_establecimiento' },
           tipo_establecimiento: { $first: '$tipo_establecimiento' },
           evaluaciones: { $sum: 1 },
-          aprobadas: {
-            $sum: {
-              $cond: ['$aprobado', 1, 0],
-            },
-          },
+          aprobadas: { $sum: { $cond: ['$aprobado', 1, 0] } },
         },
       },
       {
@@ -81,15 +94,7 @@ export class ApplicantsService {
           evaluaciones: 1,
           aprobadas: 1,
           porcentaje_aprobacion: {
-            $round: [
-              {
-                $multiply: [
-                  { $divide: ['$aprobadas', '$evaluaciones'] },
-                  100,
-                ],
-              },
-              2,
-            ],
+            $round: [{ $multiply: [{ $divide: ['$aprobadas', '$evaluaciones'] }, 100] }, 2],
           },
         },
       },
@@ -122,46 +127,60 @@ export class ApplicantsService {
 
   async obtenerDetalleAspirante(identificador: string): Promise<DetalleAspirante> {
     const limpio = identificador.trim().toUpperCase();
-    const historial = await this.evaluaciones
-      .find(
+    const [detalle] = await this.evaluaciones
+      .aggregate<DetalleAspirante>([
+        { $match: { $or: [{ correlativo: limpio }, { carnet: limpio }] } },
+        { $project: { _id: 0 } },
+        { $sort: { anio_evaluacion: 1, fecha_asignacion: 1, materia_evaluada: 1, numero_evaluacion: 1 } },
         {
-          $or: [{ correlativo: limpio }, { carnet: limpio }],
+          $group: {
+            _id: '$correlativo',
+            carnet: { $max: '$carnet' },
+            anio_evaluacion: { $max: '$anio_evaluacion' },
+            sexo: { $first: '$sexo' },
+            edad: { $max: '$edad' },
+            grado_academico: { $first: '$grado_academico' },
+            carrera_objetivo: { $first: '$carrera_objetivo' },
+            establecimiento: { $first: '$establecimiento' },
+            departamento_establecimiento: { $first: '$departamento_establecimiento' },
+            municipio_establecimiento: { $first: '$municipio_establecimiento' },
+            tipo_establecimiento: { $first: '$tipo_establecimiento' },
+            evaluaciones: { $sum: 1 },
+            aprobadas: { $sum: { $cond: ['$aprobado', 1, 0] } },
+            historial: { $push: '$$ROOT' },
+          },
         },
-        { projection: { _id: 0 } },
-      )
-      .sort({ anio_evaluacion: 1, fecha_asignacion: 1, materia_evaluada: 1, numero_evaluacion: 1 })
+        {
+          $project: {
+            _id: 0,
+            perfil: {
+              correlativo: '$_id',
+              carnet: '$carnet',
+              anio_evaluacion: '$anio_evaluacion',
+              sexo: '$sexo',
+              edad: '$edad',
+              grado_academico: '$grado_academico',
+              carrera_objetivo: '$carrera_objetivo',
+              establecimiento: '$establecimiento',
+              departamento_establecimiento: '$departamento_establecimiento',
+              municipio_establecimiento: '$municipio_establecimiento',
+              tipo_establecimiento: '$tipo_establecimiento',
+              evaluaciones: '$evaluaciones',
+              aprobadas: '$aprobadas',
+              porcentaje_aprobacion: {
+                $round: [{ $multiply: [{ $divide: ['$aprobadas', '$evaluaciones'] }, 100] }, 2],
+              },
+            },
+            historial: 1,
+          },
+        },
+      ])
       .toArray();
 
-    if (historial.length === 0) {
+    if (!detalle) {
       throw new NotFoundException(`No se encontró ningún aspirante con identificador ${limpio}`);
     }
 
-    const primero = historial[0]!;
-    const carnet = historial.find(item => item.carnet)?.carnet ?? null;
-    const anioEvaluacion = Math.max(...historial.map(item => item.anio_evaluacion));
-    const edades = historial.map(item => item.edad).filter((edad): edad is number => edad !== null);
-    const edad = edades.length > 0 ? Math.max(...edades) : null;
-    const aprobadas = historial.filter(item => item.aprobado).length;
-    const evaluaciones = historial.length;
-
-    return {
-      perfil: {
-        correlativo: primero.correlativo,
-        carnet,
-        anio_evaluacion: anioEvaluacion,
-        sexo: primero.sexo,
-        edad,
-        grado_academico: primero.grado_academico,
-        carrera_objetivo: primero.carrera_objetivo,
-        establecimiento: primero.establecimiento,
-        departamento_establecimiento: primero.departamento_establecimiento,
-        municipio_establecimiento: primero.municipio_establecimiento,
-        tipo_establecimiento: primero.tipo_establecimiento,
-        evaluaciones,
-        aprobadas,
-        porcentaje_aprobacion: Number(((aprobadas / evaluaciones) * 100).toFixed(2)),
-      },
-      historial,
-    };
+    return detalle;
   }
 }

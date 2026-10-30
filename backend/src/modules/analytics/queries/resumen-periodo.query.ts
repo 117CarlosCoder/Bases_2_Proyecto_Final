@@ -35,6 +35,9 @@ export class ResumenPeriodoQuery {
           approved: 1,
           applicants: { $size: '$applicants' },
           careers: { $size: '$careers' },
+          approvalPercentage: {
+            $round: [{ $multiply: [{ $divide: ['$approved', '$total'] }, 100] }, 0],
+          },
         },
       },
     ];
@@ -42,7 +45,7 @@ export class ResumenPeriodoQuery {
     const dias: Document[] = [
       {
         $group: {
-          _id: { $ifNull: ['$fecha_evaluacion', '$fecha_asignacion'] },
+          _id: { $substrBytes: [{ $ifNull: ['$fecha_evaluacion', '$fecha_asignacion'] }, 5, 5] },
           total: { $sum: 1 },
           approved: { $sum: { $cond: ['$aprobado', 1, 0] } },
         },
@@ -52,7 +55,7 @@ export class ResumenPeriodoQuery {
 
     const [resultado] = await this.evaluaciones
       .aggregate<{
-        resumen: { total: number; approved: number; applicants: number; careers: number }[];
+        resumen: { total: number; approved: number; applicants: number; careers: number; approvalPercentage: number }[];
         dias: { date: string; total: number; approved: number }[];
       }>([{ $match: filtro }, { $facet: { resumen, dias } }])
       .toArray();
@@ -68,15 +71,25 @@ export class ResumenPeriodoQuery {
 
     while (fecha.toISOString().slice(0, 10) <= hasta) {
       const date = fecha.toISOString().slice(0, 10);
-      const datosDia = porDia.get(date) ?? { date, total: 0, approved: 0 };
-      points.push({ ...datosDia, label: formatoFecha.format(fecha) });
+      const datosDia = porDia.get(date.slice(5));
+      points.push({
+        date,
+        total: datosDia?.total ?? 0,
+        approved: datosDia?.approved ?? 0,
+        label: formatoFecha.format(fecha),
+      });
       fecha.setUTCDate(fecha.getUTCDate() + 1);
     }
 
-    const totals = resultado?.resumen[0] ?? { total: 0, approved: 0, applicants: 0, careers: 0 };
+    const totals = resultado?.resumen[0] ?? {
+      total: 0,
+      approved: 0,
+      applicants: 0,
+      careers: 0,
+      approvalPercentage: 0,
+    };
 
     return {
-      approvalPercentage: totals.total ? Math.round((totals.approved / totals.total) * 100) : 0,
       periodLabel,
       year: String(anio),
       ...totals,

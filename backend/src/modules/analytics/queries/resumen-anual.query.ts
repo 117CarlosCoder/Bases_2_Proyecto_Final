@@ -12,6 +12,7 @@ interface AgregadoAnualRaw {
   approved: number;
   applicants: number;
   careers: number;
+  approvalPercentage: number;
 }
 
 interface AgregadoMensualRaw {
@@ -30,80 +31,94 @@ export class ResumenAnualQuery {
   }
 
   async listarAnios(): Promise<string[]> {
-    const anios = await this.evaluaciones.distinct('anio_evaluacion');
-    return anios
-      .filter(valor => Number.isInteger(valor))
-      .sort((a, b) => a - b)
-      .map(String);
+    const resultado = await this.evaluaciones
+      .aggregate<{ anio: string }>([
+        { $group: { _id: '$anio_evaluacion' } },
+        { $sort: { _id: 1 } },
+        { $project: { _id: 0, anio: { $toString: '$_id' } } },
+      ])
+      .toArray();
+
+    return resultado.map(item => item.anio);
   }
 
   async ejecutar(anio?: number): Promise<ResumenAnualDashboard> {
     const filtro: Filter<EvaluacionDocument> = anio === undefined ? {} : { anio_evaluacion: anio };
 
-    const [anuales, mensuales, aniosDisponibles] = await Promise.all([
-      this.evaluaciones
-        .aggregate<AgregadoAnualRaw>([
-          { $match: filtro },
-          {
-            $group: {
-              _id: null,
-              total: { $sum: 1 },
-              approved: { $sum: { $cond: ['$aprobado', 1, 0] } },
-              applicantsSet: { $addToSet: '$correlativo' },
-              careersSet: { $addToSet: '$carrera_objetivo' },
-            },
-          },
-          {
-            $project: {
-              _id: 0,
-              total: 1,
-              approved: 1,
-              applicants: { $size: '$applicantsSet' },
-              careers: { $size: '$careersSet' },
-            },
-          },
-        ])
-        .toArray(),
-      this.evaluaciones
-        .aggregate<AgregadoMensualRaw>([
-          { $match: filtro },
-          {
-            $project: {
-              anio_evaluacion: 1,
-              aprobado: 1,
-              month: {
-                $cond: [
-                  { $ne: ['$fecha_evaluacion', null] },
-                  { $toInt: { $substrBytes: ['$fecha_evaluacion', 5, 2] } },
-                  '$mes_asignacion',
-                ],
+    const [facet] = await this.evaluaciones
+      .aggregate<{
+        anuales: AgregadoAnualRaw[];
+        mensuales: AgregadoMensualRaw[];
+        anios: Array<{ anio: string }>;
+      }>([
+        { $match: filtro },
+        {
+          $facet: {
+            anuales: [
+              {
+                $group: {
+                  _id: null,
+                  total: { $sum: 1 },
+                  approved: { $sum: { $cond: ['$aprobado', 1, 0] } },
+                  applicantsSet: { $addToSet: '$correlativo' },
+                  careersSet: { $addToSet: '$carrera_objetivo' },
+                },
               },
-            },
-          },
-          {
-            $group: {
-              _id: {
-                year: '$anio_evaluacion',
-                month: '$month',
+              {
+                $project: {
+                  _id: 0,
+                  total: 1,
+                  approved: 1,
+                  applicants: { $size: '$applicantsSet' },
+                  careers: { $size: '$careersSet' },
+                  approvalPercentage: {
+                    $round: [{ $multiply: [{ $divide: ['$approved', '$total'] }, 100] }, 0],
+                  },
+                },
               },
-              total: { $sum: 1 },
-              approved: { $sum: { $cond: ['$aprobado', 1, 0] } },
-            },
+            ],
+            mensuales: [
+              {
+                $group: {
+                  _id: {
+                    year: '$anio_evaluacion',
+                    month: {
+                      $cond: [
+                        { $ne: ['$fecha_evaluacion', null] },
+                        { $toInt: { $substrBytes: ['$fecha_evaluacion', 5, 2] } },
+                        '$mes_asignacion',
+                      ],
+                    },
+                  },
+                  total: { $sum: 1 },
+                  approved: { $sum: { $cond: ['$aprobado', 1, 0] } },
+                },
+              },
+              {
+                $project: {
+                  _id: 0,
+                  year: '$_id.year',
+                  month: '$_id.month',
+                  total: 1,
+                  approved: 1,
+                },
+              },
+              { $sort: { year: 1, month: 1 } },
+            ],
+            anios: [
+              { $group: { _id: '$anio_evaluacion' } },
+              { $sort: { _id: 1 } },
+              { $project: { _id: 0, anio: { $toString: '$_id' } } },
+            ],
           },
-          {
-            $project: {
-              _id: 0,
-              year: '$_id.year',
-              month: '$_id.month',
-              total: 1,
-              approved: 1,
-            },
-          },
-          { $sort: { year: 1, month: 1 } },
-        ])
-        .toArray(),
-      anio === undefined ? this.listarAnios() : Promise.resolve([String(anio)]),
-    ]);
+        },
+      ])
+      .toArray();
+
+    const mensuales = facet?.mensuales ?? [];
+    const aniosDisponibles = anio === undefined
+      ? (facet?.anios ?? []).map(item => item.anio)
+      : [String(anio)];
 
     const months = Array.from({ length: 12 }, () => ({ total: 0, approved: 0 }));
     for (const item of mensuales) {
@@ -147,15 +162,13 @@ export class ResumenAnualQuery {
       }));
     }
 
-    const resumen = anuales[0] ?? {
+    const resumen = facet?.anuales[0] ?? {
       total: 0,
       approved: 0,
       applicants: 0,
       careers: 0,
+      approvalPercentage: 0,
     };
-
-    const approvalPercentage =
-      resumen.total > 0 ? Math.round((resumen.approved / resumen.total) * 100) : 0;
 
     return {
       year: anio === undefined ? 'Todos' : String(anio),
@@ -163,7 +176,7 @@ export class ResumenAnualQuery {
       approved: resumen.approved,
       applicants: resumen.applicants,
       careers: resumen.careers,
-      approvalPercentage,
+      approvalPercentage: resumen.approvalPercentage,
       periodLabel: anio === undefined ? 'Todos los años' : `Año ${anio}`,
       months,
       points,

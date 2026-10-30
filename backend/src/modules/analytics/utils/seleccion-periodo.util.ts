@@ -70,12 +70,16 @@ export function resolverPeriodo(anio?: number, seleccion: FiltroPeriodoAnalytics
     throw new BadRequestException('Selecciona un año y un periodo con fechas desde y hasta válidas.');
   }
 
+  const desdeMesDia = desde.slice(5);
+  const hastaMesDia = hasta.slice(5);
+  const fechaEfectiva = { $ifNull: ['$fecha_evaluacion', '$fecha_asignacion'] };
+
   const filtro: Filter<EvaluacionDocument> = {
     anio_evaluacion: anio,
     $expr: {
       $and: [
-        { $gte: [{ $ifNull: ['$fecha_evaluacion', '$fecha_asignacion'] }, desde] },
-        { $lte: [{ $ifNull: ['$fecha_evaluacion', '$fecha_asignacion'] }, hasta] },
+        { $gte: [{ $substrBytes: [fechaEfectiva, 5, 5] }, desdeMesDia] },
+        { $lte: [{ $substrBytes: [fechaEfectiva, 5, 5] }, hastaMesDia] },
       ],
     },
   };

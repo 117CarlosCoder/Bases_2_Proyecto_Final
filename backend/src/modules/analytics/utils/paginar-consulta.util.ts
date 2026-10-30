@@ -3,26 +3,6 @@ import type { Collection, Document } from 'mongodb';
 import type { ConsultaAnalyticsDto } from '../dto/consulta-analytics.dto';
 import type { PaginaConsulta } from '../entities/analytics.entity';
 
-function normalizarTexto(valor: unknown): string {
-  return String(valor ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-}
-
-function compararValores(a: unknown, b: unknown, direccion: 'asc' | 'desc'): number {
-  if (a == null && b == null) return 0;
-  if (a == null) return 1;
-  if (b == null) return -1;
-
-  const factor = direccion === 'desc' ? -1 : 1;
-  if (typeof a === 'number' && typeof b === 'number') {
-    return (a - b) * factor;
-  }
-  return String(a).localeCompare(String(b), 'es') * factor;
-}
-
 export async function paginarConsulta<T extends Record<string, any>>(
   collection: Collection<any>,
   pipeline: Document[],
@@ -32,7 +12,7 @@ export async function paginarConsulta<T extends Record<string, any>>(
   scopeLabel: string,
 ): Promise<PaginaConsulta<T>> {
   const limite = query.limite ?? 10;
-  const paginaSolicitada = query.pagina ?? 1;
+  const paginaSolicitada = Math.max(1, query.pagina ?? 1);
   const ordenarPor = query.ordenarPor ?? Object.keys(defaultSort)[0];
 
   if (!fields.includes(ordenarPor)) {
@@ -40,42 +20,71 @@ export async function paginarConsulta<T extends Record<string, any>>(
   }
 
   const direccion = query.direccion ?? (defaultSort[ordenarPor] === -1 ? 'desc' : 'asc');
-  const registros = pipeline.length > 0
-    ? await collection.aggregate<T>(pipeline).toArray()
-    : await collection.find<T>({}, { projection: { _id: 0 } }).toArray();
+  const sortStage: Record<string, 1 | -1> = {
+    [ordenarPor]: direccion === 'desc' ? -1 : 1,
+    ...defaultSort,
+  };
+  sortStage[ordenarPor] = direccion === 'desc' ? -1 : 1;
 
-  const textoBusqueda = normalizarTexto(query.buscar);
-  const filtrados = textoBusqueda
-    ? registros.filter(fila => fields.some(campo => normalizarTexto(fila[campo]).includes(textoBusqueda)))
-    : registros;
+  const patron = query.buscar?.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const filtroBusqueda: Document[] = patron
+    ? [{
+        $match: {
+          $expr: {
+            $or: fields.map(campo => ({
+              $regexMatch: {
+                input: { $ifNull: [{ $toString: `$${campo}` }, ''] },
+                regex: patron,
+                options: 'i',
+              },
+            })),
+          },
+        },
+      }]
+    : [];
 
-  const ordenados = [...filtrados].sort((a, b) => {
-    const comparacionPrincipal = compararValores(a[ordenarPor], b[ordenarPor], direccion);
-    if (comparacionPrincipal !== 0) return comparacionPrincipal;
+  const etapasBase = pipeline.length > 0 ? pipeline : [{ $project: { _id: 0 } }];
+  const pipelineCompleto: Document[] = [
+    ...etapasBase,
+    {
+      $facet: {
+        totalSinBusqueda: [{ $count: 'n' }],
+        total: [...filtroBusqueda, { $count: 'n' }],
+        items: [
+          ...filtroBusqueda,
+          { $sort: sortStage },
+          { $skip: (paginaSolicitada - 1) * limite },
+          { $limit: limite },
+        ],
+      },
+    },
+  ];
+  const mongoQuery = `db.${collection.collectionName}.aggregate(${JSON.stringify(pipelineCompleto, null, 2)})`;
 
-    for (const [campo, dir] of Object.entries(defaultSort)) {
-      const desempate = compararValores(a[campo], b[campo], dir === -1 ? 'desc' : 'asc');
-      if (desempate !== 0) return desempate;
-    }
-    return 0;
-  });
+  const [resultado] = await collection.aggregate<{
+    items: T[];
+    total: Array<{ n: number }>;
+    totalSinBusqueda: Array<{ n: number }>;
+  }>(pipelineCompleto, { allowDiskUse: true }).toArray();
 
-  const total = ordenados.length;
+  const total = resultado?.total[0]?.n ?? 0;
+  const totalSinBusqueda = resultado?.totalSinBusqueda[0]?.n ?? 0;
   const paginas = Math.max(1, Math.ceil(total / limite));
   const pagina = Math.min(paginaSolicitada, paginas);
   const inicio = (pagina - 1) * limite;
-  const items = ordenados.slice(inicio, inicio + limite);
+  const items = resultado?.items ?? [];
 
   return {
     items,
     total,
-    totalSinBusqueda: registros.length,
+    totalSinBusqueda,
     pagina,
     limite,
     paginas,
     ordenarPor,
     direccion,
     scopeLabel,
+    mongoQuery,
     desde: total ? inicio + 1 : 0,
     hasta: total ? inicio + items.length : 0,
     paginaAnterior: pagina > 1 ? pagina - 1 : null,
